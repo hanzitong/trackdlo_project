@@ -31,13 +31,13 @@ trackdlo (ROS1/catkin実装) を **ROS2 (ament_cmake) パッケージとして�
 
 ```
 現状:                           目標 (ROS2):
-trackdlo/ (ROS1残骸)            trackdlo_node_ros2/    ← ROS2薄ラッパー
+trackdlo/ (ROS1残骸)            src/trackdlo_node_ros2/    ← ROS2薄ラッパー (ament_cmake)
   trackdlo_node.cpp               trackdlo_node.cpp
   (参照用のみ)                      (純粋な接続層のみ)
-                                      ├─ preprocessing::color_threshold()
-                                      ├─ preprocessing::images_to_pointcloud()
-                                      ├─ preprocessing::compute_visible_nodes()
-                                      └─ tracking_step() [pure_trackdlo]
+                                        ├─ preprocessing::color_threshold()
+                                        ├─ preprocessing::images_to_pointcloud()
+                                        ├─ preprocessing::compute_visible_nodes()
+                                        └─ tracking_step() [pure_trackdlo]
 ```
 
 ## 完了済み
@@ -59,15 +59,15 @@ trackdlo/ (ROS1残骸)            trackdlo_node_ros2/    ← ROS2薄ラッパー
 
 ```bash
 # pure_trackdlo
-cd pure_trackdlo && mkdir -p build && cd build
+cd src/pure_trackdlo && mkdir -p build && cd build
 cmake .. && make && ctest --output-on-failure
 
 # preprocessing
-cd preprocessing && mkdir -p build && cd build
+cd src/preprocessing && mkdir -p build && cd build
 cmake .. && make && ctest --output-on-failure
 
 # evaluation
-cd evaluation && mkdir -p build && cd build
+cd src/evaluation && mkdir -p build && cd build
 cmake .. && make
 ```
 
@@ -85,25 +85,28 @@ cmake .. && make
 
 ## ディレクトリ構成
 ```
-trackdlo_ros2/                   ← このリポジトリのルート
-├── pure_trackdlo/               # ROS非依存のtrackdloアルゴリズム (Eigen3のみ)
-│   ├── include/trackdlo.h       # TrackdloState / TrackdloParams struct + フリー関数宣言
-│   ├── include/utils.h          # 幾何学ユーティリティ
-│   ├── src/trackdlo.cpp         # cpd_lle(), tracking_step() 実装
-│   ├── src/utils.cpp
-│   ├── tests/                   # Google Test (17テスト)
-│   └── CMakeLists.txt
-│
-├── preprocessing/               # カメラ画像→点群変換・ノード可視性計算 (OpenCV + PCL)
-│   ├── include/preprocessing.h  # color_threshold / images_to_pointcloud / compute_visible_nodes
-│   ├── src/preprocessing.cpp
-│   ├── tests/                   # Google Test (5テスト)
-│   └── CMakeLists.txt
-│
-├── evaluation/                  # トラッキング精度評価 ベンチマーク専用
-│   ├── include/evaluator.h      # evaluator クラス
-│   ├── src/evaluator.cpp
-│   └── CMakeLists.txt
+trackdlo_ros2/                   ← ROS2ワークスペース兼リポジトリルート
+├── src/                         # ← 全パッケージはここに格納
+│   ├── pure_trackdlo/           # 非ROS2: trackdloアルゴリズム (Eigen3のみ, plain CMake)
+│   │   ├── include/trackdlo.h   # TrackdloState / TrackdloParams struct + フリー関数宣言
+│   │   ├── include/utils.h      # 幾何学ユーティリティ
+│   │   ├── src/trackdlo.cpp     # cpd_lle(), tracking_step() 実装
+│   │   ├── src/utils.cpp
+│   │   ├── tests/               # Google Test (17テスト)
+│   │   └── CMakeLists.txt
+│   │
+│   ├── preprocessing/           # 非ROS2: カメラ画像→点群変換 (OpenCV + PCL, plain CMake)
+│   │   ├── include/preprocessing.h
+│   │   ├── src/preprocessing.cpp
+│   │   ├── tests/               # Google Test (5テスト)
+│   │   └── CMakeLists.txt
+│   │
+│   ├── evaluation/              # 非ROS2: トラッキング精度評価 (plain CMake)
+│   │   ├── include/evaluator.h
+│   │   ├── src/evaluator.cpp
+│   │   └── CMakeLists.txt
+│   │
+│   └── (trackdlo_node_ros2/)    # 未作成: ROS2薄ラッパーノード (ament_cmake)
 │
 ├── trackdlo/                    # ROS1実装の残骸 (参照用のみ, 新規実装に使わない)
 │   └── src/
