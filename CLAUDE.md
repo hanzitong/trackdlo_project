@@ -55,7 +55,19 @@ trackdlo/ (ROS1残骸)            src/trackdlo_node_ros2/    ← ROS2薄ラッ�
 
 # Build & Development
 
-## 各ライブラリのビルド
+## colcon ビルド (推奨)
+
+```bash
+# ワークスペースルートから全パッケージを一括ビルド
+# pure_trackdlo → preprocessing → evaluation → trackdlo の順に自動解決される
+colcon build
+
+# テスト (cmake パッケージは ctest を自動実行)
+colcon test
+colcon test-result --verbose
+```
+
+## 個別ビルド (開発時の素早い確認用)
 
 ```bash
 # pure_trackdlo
@@ -65,16 +77,10 @@ cmake .. && make && ctest --output-on-failure
 # preprocessing
 cd src/preprocessing && mkdir -p build && cd build
 cmake .. && make && ctest --output-on-failure
-
-# evaluation
-cd src/evaluation && mkdir -p build && cd build
-cmake .. && make
 ```
 
-## テスト (Google Test)
+## テスト (Google Test 単体)
 ```bash
-# ビルド後、build/ ディレクトリから実行
-./build/<test_binary>
 # 単一テストケースの実行
 ./build/<test_binary> --gtest_filter=TestSuite.TestName
 ```
@@ -106,7 +112,16 @@ trackdlo_ros2/                   ← ROS2ワークスペース兼リポジトリ
 │   │   ├── src/evaluator.cpp
 │   │   └── CMakeLists.txt
 │   │
-│   └── (trackdlo_node_ros2/)    # 未作成: ROS2薄ラッパーノード (ament_cmake)
+│   └── trackdlo/                # ROS2パッケージ (ament_cmake)
+│       ├── package.xml          # <depend>pure_trackdlo</depend> 等でビルド順制御
+│       ├── CMakeLists.txt       # find_package(pure_trackdlo) でリンク (node実装は TODO)
+│       ├── src/
+│       │   ├── trackdlo_node.cpp    # ROS1参照実装 (ROS2書き換えが残り作業)
+│       │   └── run_evaluation.cpp   # 同上
+│       ├── scripts/             # Python スクリプト
+│       ├── launch/              # ROS1 launch ファイル (ROS2 .py に書き換えが残り作業)
+│       ├── config/              # カメラ設定プリセット
+│       └── rviz/                # RViz 設定
 │
 ├── trackdlo/                    # ROS1実装の残骸 (参照用のみ, 新規実装に使わない)
 │   └── src/
