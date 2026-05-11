@@ -11,7 +11,10 @@ find_package(PCL 1.8 REQUIRED COMPONENTS common filters)
 add_library(preprocessing
     src/preprocessing.cpp
 )
-target_include_directories(preprocessing PUBLIC include)
+target_include_directories(preprocessing PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
 target_link_libraries(preprocessing
     Eigen3::Eigen
     ${OpenCV_LIBS}
@@ -26,3 +29,26 @@ target_link_libraries(test_preprocessing preprocessing GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(test_preprocessing)
+
+# ---- インストール & cmake package config 生成 ----
+install(TARGETS preprocessing
+    EXPORT preprocessing-targets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+install(DIRECTORY include/ DESTINATION include)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    cmake/preprocessing-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/preprocessing-config.cmake
+    INSTALL_DESTINATION lib/cmake/preprocessing
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/preprocessing-config.cmake
+    DESTINATION lib/cmake/preprocessing
+)
+install(EXPORT preprocessing-targets
+    FILE preprocessing-targets.cmake
+    DESTINATION lib/cmake/preprocessing
+)

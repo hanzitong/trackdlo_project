@@ -10,7 +10,12 @@ add_library(pure_trackdlo
     src/trackdlo.cpp
     src/utils.cpp
 )
-target_include_directories(pure_trackdlo PUBLIC include)
+# $<BUILD_INTERFACE:...> はビルド時のパス、$<INSTALL_INTERFACE:...> はインストール後のパス
+# downstream が find_package(pure_trackdlo) したときに正しい include パスが渡る
+target_include_directories(pure_trackdlo PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
 target_link_libraries(pure_trackdlo Eigen3::Eigen)
 
 enable_testing()
@@ -25,3 +30,27 @@ target_link_libraries(test_trackdlo pure_trackdlo GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(test_utils)
 gtest_discover_tests(test_trackdlo)
+
+# ---- インストール & cmake package config 生成 ----
+# colcon build 後、downstream が find_package(pure_trackdlo REQUIRED) できるようにする
+install(TARGETS pure_trackdlo
+    EXPORT pure_trackdlo-targets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+install(DIRECTORY include/ DESTINATION include)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    cmake/pure_trackdlo-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pure_trackdlo-config.cmake
+    INSTALL_DESTINATION lib/cmake/pure_trackdlo
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/pure_trackdlo-config.cmake
+    DESTINATION lib/cmake/pure_trackdlo
+)
+install(EXPORT pure_trackdlo-targets
+    FILE pure_trackdlo-targets.cmake
+    DESTINATION lib/cmake/pure_trackdlo
+)

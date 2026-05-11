@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>preprocessing</name>
+  <version>1.0.0</version>
+  <description>
+    Standalone C++ library for camera image to point cloud conversion
+    and DLO node visibility computation. No ROS dependency — plain CMake.
+  </description>
+  <maintainer email="hanzitong1218@gmail.com">Nachi</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>cmake</buildtool_depend>
+
+  <build_depend>libeigen3-dev</build_depend>
+  <build_depend>libopencv-dev</build_depend>
+  <build_depend>libpcl-dev</build_depend>
+  <exec_depend>libeigen3-dev</exec_depend>
+  <exec_depend>libopencv-dev</exec_depend>
+  <exec_depend>libpcl-dev</exec_depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>
