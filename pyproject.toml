@@ -1,0 +1,9 @@
+[project]
+name = "trackdlo-workspace"
+version = "0.1.0"
+description = "Python environment for trackdlo_python bindings"
+requires-python = ">=3.10"
+dependencies = [
+    "pybind11>=3.0",
+    "numpy",
+]
