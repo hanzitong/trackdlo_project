@@ -536,6 +536,10 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         double trPXtT    = (PX.transpose() * T).trace();
         double trTtdP1T  = (T.transpose() * P1.asDiagonal() * T).trace();
         sigma2 = (trXtdPt1X - 2*trPXtT + trTtdP1T) / (Np * D);
+        // Np=0 などで sigma2 が NaN/負 になると Y が NaN に汚染されて
+        // 後続の traverse_euclidean でヒープ破壊が起きる。
+        // 最小値にクランプして NaN 伝播を防ぐ。
+        if (std::isnan(sigma2) || sigma2 <= 0) sigma2 = 1e-8;
 
         if (pt2pt_dis(Y, Y_0 + G*W) / Y.rows() < tol) {
             Y = Y_0 + G*W;
@@ -595,18 +599,28 @@ void tracking_step(TrackdloState& state,
         std::vector<Eigen::MatrixXd> priors_vec_2 = traverse_euclidean(state.geodesic_coord, state.guide_nodes, visible_nodes_extended, 1);
         std::reverse(priors_vec_2.begin(), priors_vec_2.end());
 
+        // traverse_euclidean が M 個未満を返した場合 (sigma2 が一時的に NaN に
+        // なった後のリカバリ途中など) は out-of-bounds になる。
+        // priors が足りなければ correspondence_priors なし (cpd_lle が自力で合わせる)。
         state.correspondence_priors = {};
-        for (int i = 0; i < state.Y.rows(); i++) {
-            if (i < priors_vec_2[0](0, 0) && i < static_cast<int>(priors_vec_1.size())) {
-                state.correspondence_priors.push_back(priors_vec_1[i]);
-            }
-            else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) &&
-                     (i-(state.Y.rows()-static_cast<int>(priors_vec_2.size()))) < static_cast<int>(priors_vec_2.size()))
-            {
-                state.correspondence_priors.push_back(priors_vec_2[i-(state.Y.rows()-priors_vec_2.size())]);
-            }
-            else {
-                state.correspondence_priors.push_back((priors_vec_1[i] + priors_vec_2[i-(state.Y.rows()-priors_vec_2.size())]) / 2.0);
+        if (priors_vec_1.size() == static_cast<size_t>(state.Y.rows()) &&
+            priors_vec_2.size() == static_cast<size_t>(state.Y.rows()))
+        {
+            for (int i = 0; i < state.Y.rows(); i++) {
+                int offset = i - (state.Y.rows() - static_cast<int>(priors_vec_2.size()));
+                if (i < priors_vec_2[0](0, 0) && i < static_cast<int>(priors_vec_1.size())) {
+                    state.correspondence_priors.push_back(priors_vec_1[i]);
+                }
+                else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) &&
+                         offset >= 0 && offset < static_cast<int>(priors_vec_2.size()))
+                {
+                    state.correspondence_priors.push_back(priors_vec_2[offset]);
+                }
+                else if (i < static_cast<int>(priors_vec_1.size()) &&
+                         offset >= 0 && offset < static_cast<int>(priors_vec_2.size()))
+                {
+                    state.correspondence_priors.push_back((priors_vec_1[i] + priors_vec_2[offset]) / 2.0);
+                }
             }
         }
     }

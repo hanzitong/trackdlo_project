@@ -1,9 +1,31 @@
 [project]
 name = "trackdlo-workspace"
 version = "0.1.0"
-description = "Python environment for trackdlo_python bindings"
-requires-python = ">=3.10"
+description = "Python environment for trackdlo_python bindings and bmask_gen DeepLab"
+requires-python = ">=3.11"
 dependencies = [
+    # trackdlo_python (pybind11 ビルド用)
     "pybind11>=3.0",
     "numpy",
+    # bmask_gen (DeepLabV3+ セグメンテーション)
+    "labelme==5.3.0",
+    "opencv-python>=4.13.0.92",
+    "pillow>=12.2.0",
+    "segmentation-models-pytorch>=0.5.0",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+    # RealSense Python バインディング (librealsense2 本体は別途 apt でインストール済み)
+    "pyrealsense2",
 ]
+
+# PyTorch は PyPI に CPU 版しか置かれていない。
+# CUDA 版を取得するには公式インデックスを明示する。
+# explicit = true: torch/torchvision 以外は通常の PyPI から取得する。
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130" }]
+torchvision = [{ index = "pytorch-cu130" }]
