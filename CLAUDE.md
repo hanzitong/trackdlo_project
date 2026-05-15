@@ -17,8 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # 事前情報
 - trackdloは３次元座標空間内でケーブルの代表点座標を認識可能なアルゴリズム名である。
-- `trackdlo/` 以下はROS1 (catkin) 実装の残骸。参照用として一部保持しているが、新規実装には使わない。
-- アルゴリズム本体は `pure_trackdlo/`、前処理は `preprocessing/`、評価は `evaluation/` に切り出し済み。
+- アルゴリズム本体は `src/pure_trackdlo/`、前処理は `src/preprocessing/`、評価は `src/evaluation/` に切り出し済み。
+- `src/trackdlo/src/trackdlo_node.cpp` はROS1参照実装。ROS2ノード作成の参考にするだけで直接編集しない。
 
 
 # 最終目標: ROS2への移植
@@ -30,25 +30,25 @@ trackdlo (ROS1/catkin実装) を **ROS2 (ament_cmake) パッケージとして�
 アルゴリズムを先にROS非依存ライブラリとして確立し、ROS2ラッパーを薄く書く。
 
 ```
-現状:                           目標 (ROS2):
-trackdlo/ (ROS1残骸)            src/trackdlo_node_ros2/    ← ROS2薄ラッパー (ament_cmake)
-  trackdlo_node.cpp               trackdlo_node.cpp
-  (参照用のみ)                      (純粋な接続層のみ)
-                                        ├─ preprocessing::color_threshold()
-                                        ├─ preprocessing::images_to_pointcloud()
-                                        ├─ preprocessing::compute_visible_nodes()
-                                        └─ tracking_step() [pure_trackdlo]
+目標 (ROS2):
+src/trackdlo/    ← ROS2薄ラッパー (ament_cmake) — ノード実装が残り作業
+  src/trackdlo_node.cpp  (現在はROS1参照実装。ROS2に書き換える)
+        ├─ preprocessing::color_threshold()
+        ├─ preprocessing::images_to_pointcloud()
+        ├─ preprocessing::compute_visible_nodes()
+        └─ tracking_step() [pure_trackdlo]
 ```
 
 ## 完了済み
-1. `pure_trackdlo/` — ROSなしのtrackdloアルゴリズム (Eigen3のみ)
+1. `src/pure_trackdlo/` — ROSなしのtrackdloアルゴリズム (Eigen3のみ)
    - `TrackdloState` / `TrackdloParams` struct + フリー関数設計
-2. `preprocessing/` — カメラ画像→点群変換・ノード可視性計算 (OpenCV + PCL)
-3. `evaluation/` — トラッキング精度評価 (ベンチマーク専用)
-4. `trackdlo/` の移植済みファイル削除 (ヘッダ3本 + 実装3本 + ROS1ユーティリティ)
+2. `src/preprocessing/` — カメラ画像→点群変換・ノード可視性計算 (OpenCV + PCL)
+3. `src/evaluation/` — トラッキング精度評価 (ベンチマーク専用)
+4. `src/trackdlo/` — ament_cmake パッケージ骨格 (ノード実装はコメントアウト中)
 
 ## 残り作業
-- ROS2パッケージ (`trackdlo_node_ros2/`) の作成
+- `src/trackdlo/src/trackdlo_node.cpp` をROS1からROS2に書き換え
+- ROS2 launch ファイル (`.py`) の作成
 
 
 ---
@@ -61,6 +61,9 @@ trackdlo/ (ROS1残骸)            src/trackdlo_node_ros2/    ← ROS2薄ラッ�
 # ワークスペースルートから全パッケージを一括ビルド
 # pure_trackdlo → preprocessing → evaluation → trackdlo の順に自動解決される
 colcon build
+
+# 特定パッケージだけビルド (依存も含む)
+colcon build --packages-up-to trackdlo
 
 # テスト (cmake パッケージは ctest を自動実行)
 colcon test
@@ -81,8 +84,10 @@ cmake .. && make && ctest --output-on-failure
 
 ## テスト (Google Test 単体)
 ```bash
-# 単一テストケースの実行
-./build/<test_binary> --gtest_filter=TestSuite.TestName
+# 単一テストケースの実行 (バイナリ名: test_utils, test_trackdlo, test_preprocessing)
+./build/test_trackdlo --gtest_filter=TestSuite.TestName
+./build/test_utils --gtest_filter=TestSuite.TestName
+./build/test_preprocessing --gtest_filter=TestSuite.TestName
 ```
 
 ---
@@ -91,14 +96,14 @@ cmake .. && make && ctest --output-on-failure
 
 ## ディレクトリ構成
 ```
-trackdlo_ros2/                   ← ROS2ワークスペース兼リポジトリルート
+trackdlo_project/                ← ROS2ワークスペース兼リポジトリルート
 ├── src/                         # ← 全パッケージはここに格納
 │   ├── pure_trackdlo/           # 非ROS2: trackdloアルゴリズム (Eigen3のみ, plain CMake)
 │   │   ├── include/trackdlo.h   # TrackdloState / TrackdloParams struct + フリー関数宣言
 │   │   ├── include/utils.h      # 幾何学ユーティリティ
 │   │   ├── src/trackdlo.cpp     # cpd_lle(), tracking_step() 実装
 │   │   ├── src/utils.cpp
-│   │   ├── tests/               # Google Test (17テスト)
+│   │   ├── tests/               # Google Test (17テスト: test_trackdlo x6, test_utils x11)
 │   │   └── CMakeLists.txt
 │   │
 │   ├── preprocessing/           # 非ROS2: カメラ画像→点群変換 (OpenCV + PCL, plain CMake)
@@ -108,41 +113,31 @@ trackdlo_ros2/                   ← ROS2ワークスペース兼リポジトリ
 │   │   └── CMakeLists.txt
 │   │
 │   ├── evaluation/              # 非ROS2: トラッキング精度評価 (plain CMake)
-│   │   ├── include/evaluator.h
+│   │   ├── include/evaluator.h  # evaluator クラス (class設計。他と異なる点に注意)
 │   │   ├── src/evaluator.cpp
 │   │   └── CMakeLists.txt
 │   │
 │   └── trackdlo/                # ROS2パッケージ (ament_cmake)
 │       ├── package.xml          # <depend>pure_trackdlo</depend> 等でビルド順制御
-│       ├── CMakeLists.txt       # find_package(pure_trackdlo) でリンク (node実装は TODO)
+│       ├── CMakeLists.txt       # ノード実装はコメントアウト中 (残り作業)
 │       ├── src/
-│       │   ├── trackdlo_node.cpp    # ROS1参照実装 (ROS2書き換えが残り作業)
+│       │   ├── trackdlo_node.cpp    # ROS1参照実装 → ROS2書き換えが残り作業
 │       │   └── run_evaluation.cpp   # 同上
-│       ├── scripts/             # Python スクリプト
+│       ├── docs/COLOR_THRESHOLD.md  # HSV閾値チューニングガイド
+│       ├── scripts/             # Python スクリプト (initialize.py 等)
 │       ├── launch/              # ROS1 launch ファイル (ROS2 .py に書き換えが残り作業)
 │       ├── config/              # カメラ設定プリセット
 │       └── rviz/                # RViz 設定
 │
-├── trackdlo/                    # ROS1実装の残骸 (参照用のみ, 新規実装に使わない)
-│   └── src/
-│       ├── trackdlo_node.cpp    # ROS2ノード作成時の参照元 → 完成後削除可
-│       ├── run_evaluation.cpp   # ROS2評価ランナー作成時の参照元 → 完成後削除可
-│       ├── initialize.py        # DLO初期化ロジック (未移植, C++化が残り作業)
-│       └── utils.py             # Python可視化ユーティリティ (未移植)
-│
 ├── docs/
 │   ├── architecture/            # 設計判断の詳細記録
+│   │   └── trackdlo_class_vs_functions.md
 │   ├── development_plan/        # 開発計画 (Claudeのメモ場)
 │   ├── my_text/                 # 理解を助けるための詳細説明書
 │   ├── problem_solving/         # バグ修正の記録
-│   ├── COLOR_THRESHOLD.md       # HSV閾値チューニングガイド
 │   └── LEARN_MORE.md            # パラメータ調整ガイド
 │
-├── launch/                      # ROS1 launch ファイル (ROS2 launch 作成時の参照)
-├── utils/                       # 残存ユーティリティ (color_picker.py 等)
-├── config/                      # PCL設定プリセット
-├── rviz/                        # RViz設定 (ROS2でも流用可)
-└── CMakeLists.txt               # catkin ビルド設定 (ROS2 CMakeLists 作成時の参照)
+└── trackdlo_class_vs_functions.md  # ← docs/architecture/ に移動すべき残留ファイル
 ```
 
 ## TrackDLOアルゴリズムの処理フロー
@@ -187,6 +182,7 @@ state.Y (M×3行列, Eigen::MatrixXd) ← ノード座標の最終推定値
 | `color_threshold()` | `preprocessing/src/preprocessing.cpp` | HSVによるケーブル領域抽出 |
 | `images_to_pointcloud()` | `preprocessing/src/preprocessing.cpp` | ピンホール逆投影 + VoxelGrid |
 | `compute_visible_nodes()` | `preprocessing/src/preprocessing.cpp` | ノード可視性・セルフオクルージョン判定 |
+| `evaluator` クラス | `evaluation/include/evaluator.h` | 予測ノードとグラウンドトゥルースの誤差計算 (class設計) |
 
 ## 主要な依存ライブラリ
 - **Eigen3** (3.3+): 行列演算 (`Eigen::MatrixXd` が主要データ型)
