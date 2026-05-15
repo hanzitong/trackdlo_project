@@ -1,9 +1,9 @@
 #include "../include/trackdlo.h"
 #include "../include/utils.h"
 
+namespace trackdlo {
 
 void signal_callback_handler(int signum) {
-   // Terminate program
    exit(signum);
 }
 
@@ -198,19 +198,16 @@ std::vector<Eigen::MatrixXd> line_sphere_intersection (Eigen::MatrixXd point_A, 
     double d2 = (-b - sqrt(delta)) / (2*a);
 
     if (delta < 0) {
-        // no solution
         return {};
     }
     else if (delta > 0) {
         // two solutions
-        // the first one
         double x1 = point_A(0, 0) + d1*(point_B(0, 0) - point_A(0, 0));
         double y1 = point_A(0, 1) + d1*(point_B(0, 1) - point_A(0, 1));
         double z1 = point_A(0, 2) + d1*(point_B(0, 2) - point_A(0, 2));
         Eigen::MatrixXd pt1(1, 3);
         pt1 << x1, y1, z1;
 
-        // the second one
         double x2 = point_A(0, 0) + d2*(point_B(0, 0) - point_A(0, 0));
         double y2 = point_A(0, 1) + d2*(point_B(0, 1) - point_A(0, 1));
         double z2 = point_A(0, 2) + d2*(point_B(0, 2) - point_A(0, 2));
@@ -254,3 +251,5 @@ Eigen::MatrixXd cross_product (Eigen::MatrixXd vec1, Eigen::MatrixXd vec2) {
 double dot_product (Eigen::MatrixXd vec1, Eigen::MatrixXd vec2) {
     return vec1(0, 0)*vec2(0, 0) + vec1(0, 1)*vec2(0, 1) + vec1(0, 2)*vec2(0, 2);
 }
+
+} // namespace trackdlo

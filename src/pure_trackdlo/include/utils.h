@@ -6,6 +6,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+namespace trackdlo {
+
 void signal_callback_handler(int signum);
 
 template <typename T> void print_1d_vector (const std::vector<T>& vec) {
@@ -30,5 +32,7 @@ std::vector<Eigen::MatrixXd> line_sphere_intersection (Eigen::MatrixXd point_A, 
 
 Eigen::MatrixXd cross_product (Eigen::MatrixXd vec1, Eigen::MatrixXd vec2);
 double dot_product (Eigen::MatrixXd vec1, Eigen::MatrixXd vec2);
+
+} // namespace trackdlo
 
 #endif

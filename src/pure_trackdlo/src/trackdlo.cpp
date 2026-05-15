@@ -16,7 +16,10 @@
 // それぞれ1か所からしか呼ばれなかったため、呼び出し元に直接インライン化した。
 // traverse_geodesic は呼び出し箇所がゼロだったため削除した。
 // ============================================================
-namespace {
+
+namespace trackdlo {
+
+namespace {  // このファイル内だけで使うファイルローカル関数
 
 // Pure Pursuit によるオクルージョン補間
 // guide_nodes の可視部分をたどり、geodesic_coord の間隔ごとに
@@ -255,7 +258,7 @@ std::vector<Eigen::MatrixXd> traverse_euclidean(std::vector<double> geodesic_coo
     return node_pairs;
 }
 
-} // namespace
+} // namespace (anonymous)
 
 
 // ============================================================
@@ -645,3 +648,5 @@ void tracking_step(TrackdloState& state,
             state.correspondence_priors, params.alpha,
             visible_nodes_extended, params.k_vis, params.visibility_threshold);
 }
+
+} // namespace trackdlo

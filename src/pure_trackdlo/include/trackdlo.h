@@ -25,8 +25,10 @@
 //
 // ROS2 ノードクラスは TrackdloState/Params をメンバ変数として持ち、
 // コールバックから tracking_step() を呼ぶだけになる。
-// 詳細: ~/port_trackdlo/docs/architecture/trackdlo_class_vs_functions.md
+// 詳細: docs/architecture/trackdlo_class_vs_functions.md
 // ============================================================
+
+namespace trackdlo {
 
 // セッション全体で変化しないパラメータ
 struct TrackdloParams {
@@ -82,5 +84,7 @@ void tracking_step(TrackdloState& state,
                    const std::vector<int>& visible_nodes,
                    const std::vector<int>& visible_nodes_extended,
                    const TrackdloParams& params);
+
+} // namespace trackdlo
 
 #endif

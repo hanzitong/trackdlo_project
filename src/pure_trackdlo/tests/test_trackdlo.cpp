@@ -5,20 +5,20 @@
 // ---- make_trackdlo_state -----------------------------------------------
 
 TEST(MakeState, NodeCountResultSize) {
-    TrackdloState state = make_trackdlo_state(5);
+    trackdlo::TrackdloState state = trackdlo::make_trackdlo_state(5);
     EXPECT_EQ(state.Y.rows(), 5);
     EXPECT_EQ(state.Y.cols(), 3);
 }
 
 TEST(MakeState, InitialSigma2IsZero) {
-    TrackdloState state = make_trackdlo_state(5);
+    trackdlo::TrackdloState state = trackdlo::make_trackdlo_state(5);
     EXPECT_DOUBLE_EQ(state.sigma2, 0.0);
 }
 
 // ---- state の直接操作 ---------------------------------------------------
 
 TEST(StateManipulation, AssignNodes) {
-    TrackdloState state = make_trackdlo_state(3);
+    trackdlo::TrackdloState state = trackdlo::make_trackdlo_state(3);
     Eigen::MatrixXd Y(3, 3);
     Y << 1.0, 0.0, 0.0,
          2.0, 0.0, 0.0,
@@ -30,7 +30,7 @@ TEST(StateManipulation, AssignNodes) {
 }
 
 TEST(StateManipulation, SetSigma2) {
-    TrackdloState state = make_trackdlo_state(3);
+    trackdlo::TrackdloState state = trackdlo::make_trackdlo_state(3);
     state.sigma2 = 0.5;
     EXPECT_DOUBLE_EQ(state.sigma2, 0.5);
 }
@@ -38,7 +38,7 @@ TEST(StateManipulation, SetSigma2) {
 // ---- TrackdloParams のデフォルト値 --------------------------------------
 
 TEST(Params, DefaultValues) {
-    TrackdloParams p;
+    trackdlo::TrackdloParams p;
     EXPECT_DOUBLE_EQ(p.beta,   5.0);
     EXPECT_DOUBLE_EQ(p.lambda, 1.0);
     EXPECT_DOUBLE_EQ(p.mu,     0.05);
@@ -66,7 +66,7 @@ TEST(CpdLle, DoesNotCrashAndKeepsSize) {
     }
     double sigma2 = 0.01;
 
-    bool converged = cpd_lle(X, Y, sigma2, 5.0, 1.0, 1.0, 0.05);
+    bool converged = trackdlo::cpd_lle(X, Y, sigma2, 5.0, 1.0, 1.0, 0.05);
 
     EXPECT_EQ(Y.rows(), M);
     EXPECT_EQ(Y.cols(), 3);
