@@ -5,6 +5,8 @@
 #include <pcl/filters/voxel_grid.h>
 #include <map>
 
+namespace preprocessing {
+
 
 // ============================================================
 // [メモ] VoxelGridアルゴリズムの仕組み
@@ -247,3 +249,5 @@ void compute_visible_nodes(const Eigen::MatrixXd& Y,
         visible_nodes_extended.push_back(visible_nodes.back());
     }
 }
+
+} // namespace preprocessing

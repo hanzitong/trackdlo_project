@@ -52,6 +52,8 @@
 //   PCL 1.8 : VoxelGridによるダウンサンプリング
 // ============================================================
 
+namespace preprocessing {
+
 // HSV閾値でケーブル色を抽出し、2値マスクを返す
 // rgb_bgr  : OpenCVのBGR画像 (CV_8UC3)
 // lower    : HSV下限 [H, S, V]
@@ -105,3 +107,5 @@ void compute_visible_nodes(const Eigen::MatrixXd& Y,
                            int dlo_pixel_width,
                            std::vector<int>& visible_nodes,
                            std::vector<int>& visible_nodes_extended);
+
+} // namespace preprocessing

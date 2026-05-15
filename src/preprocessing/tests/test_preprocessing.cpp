@@ -14,7 +14,7 @@ TEST(ColorThreshold, PureBlueImageGivesWhiteMask) {
     cv::Mat bgr;
     cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
 
-    cv::Mat mask = color_threshold(bgr, {90, 90, 60}, {130, 255, 255});
+    cv::Mat mask = preprocessing::color_threshold(bgr, {90, 90, 60}, {130, 255, 255});
 
     // 全ピクセルが255 (白) であるか
     EXPECT_EQ(cv::countNonZero(mask), mask.rows * mask.cols);
@@ -23,7 +23,7 @@ TEST(ColorThreshold, PureBlueImageGivesWhiteMask) {
 TEST(ColorThreshold, BlackImageGivesBlackMask) {
     // 真っ黒な画像はどの閾値でもマスクが黒になる
     cv::Mat bgr(10, 10, CV_8UC3, cv::Scalar(0, 0, 0));
-    cv::Mat mask = color_threshold(bgr, {0, 0, 50}, {180, 255, 255});
+    cv::Mat mask = preprocessing::color_threshold(bgr, {0, 0, 50}, {180, 255, 255});
     EXPECT_EQ(cv::countNonZero(mask), 0);
 }
 
@@ -46,7 +46,7 @@ TEST(ImagesToPointcloud, EmptyMaskGivesZeroRows) {
     cv::Mat depth(480, 640, CV_16UC1, cv::Scalar(1000));  // 全ピクセル1m
     cv::Mat mask(480, 640, CV_8UC1, cv::Scalar(0));       // 全黒
 
-    Eigen::MatrixXd X = images_to_pointcloud(rgb, depth, make_proj_matrix(), mask);
+    Eigen::MatrixXd X = preprocessing::images_to_pointcloud(rgb, depth, make_proj_matrix(), mask);
     EXPECT_EQ(X.rows(), 0);
 }
 
@@ -61,7 +61,7 @@ TEST(ImagesToPointcloud, CenterPixelProjectsCorrectly) {
     mask.at<uchar>(240, 320) = 255;  // その1点だけ有効
 
     // leaf_size=0 でダウンサンプリングなし
-    Eigen::MatrixXd X = images_to_pointcloud(rgb, depth, make_proj_matrix(), mask, 0.0);
+    Eigen::MatrixXd X = preprocessing::images_to_pointcloud(rgb, depth, make_proj_matrix(), mask, 0.0);
 
     ASSERT_EQ(X.rows(), 1);
     EXPECT_NEAR(X(0, 0), 0.0, 1e-6);   // X = (320-320)*1.0/500 = 0
@@ -81,7 +81,7 @@ TEST(ImagesToPointcloud, OffCenterPixelProjectsCorrectly) {
     cv::Mat mask(480, 640, CV_8UC1, cv::Scalar(0));
     mask.at<uchar>(240, 321) = 255;
 
-    Eigen::MatrixXd X = images_to_pointcloud(rgb, depth, make_proj_matrix(), mask, 0.0);
+    Eigen::MatrixXd X = preprocessing::images_to_pointcloud(rgb, depth, make_proj_matrix(), mask, 0.0);
 
     ASSERT_EQ(X.rows(), 1);
     EXPECT_NEAR(X(0, 0), 0.002, 1e-6);
