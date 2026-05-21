@@ -20,6 +20,10 @@ target_link_libraries(pure_trackdlo Eigen3::Eigen)
 # pybind11 拡張 (.so) からリンクするために -fPIC が必要
 set_target_properties(pure_trackdlo PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# ---- サンプルプログラム ----
+add_executable(hello_trackdlo examples/hello_trackdlo.cpp)
+target_link_libraries(hello_trackdlo pure_trackdlo)
+
 enable_testing()
 find_package(GTest REQUIRED)
 
