@@ -14,12 +14,6 @@ add_compile_options(-O3)
 #   ↓ コンパイル & リンク
 #   libtrackdlo_c.so / trackdlo_c.dll  ← Python が ctypes.CDLL でロードする
 #
-# pybind11 を使わない理由:
-#   pybind11 は特定の Python バージョンに紐づいた拡張モジュールを生成する。
-#   Windows クロスコンパイル時に Python の Windows 版バイナリが必要になり
-#   ビルド環境の構築が複雑になる。
-#   ctypes は純粋な C 共有ライブラリを使うだけなのでクロスコンパイルが容易。
-#
 # extern "C" の役割:
 #   C++ コンパイラは関数名をマングリング (装飾) する。
 #   例: tracking_step → _ZN8trackdlo13tracking_stepE...
@@ -46,6 +40,27 @@ add_compile_options(-O3)
 #      → trackdlo_c.dll が生成される
 # =============================================================================
 
+# =============================================================================
+# ビルドターゲット切り替え
+#
+#   OFF (デフォルト) : Linux 向け共有ライブラリ  → libtrackdlo_c.so
+#   ON               : Windows 向け共有ライブラリ → trackdlo_c.dll
+#
+# ON にする場合は mingw64 ツールチェーンと組み合わせる。
+# cmake コマンドに -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake を追加するか、
+# このファイルを直接編集して ON にしてからビルドする。
+#
+# [マクロの役割]
+#   BUILD_FOR_WINDOWS が ON のとき、コンパイラに -DTRACKDLO_WINDOWS を渡す。
+#   trackdlo_c_api.h はこのマクロを検知して TRACKDLO_API を
+#   __declspec(dllexport) に展開する。
+#
+#   Linux では共有ライブラリのシンボルはデフォルトで公開されるが、
+#   Windows の DLL ではシンボルに __declspec(dllexport) を付けないと
+#   ctypes が関数を見つけられない。TRACKDLO_API はこの差を吸収するマクロ。
+# =============================================================================
+set(BUILD_FOR_WINDOWS OFF)
+
 find_package(pure_trackdlo REQUIRED)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
@@ -56,6 +71,13 @@ add_library(trackdlo_c
     SHARED
     src/trackdlo_c_api.cpp
 )
+
+if(BUILD_FOR_WINDOWS)
+    # -DTRACKDLO_WINDOWS をコンパイラに渡す。
+    # trackdlo_c_api.h の TRACKDLO_API マクロが __declspec(dllexport) に展開される。
+    target_compile_definitions(trackdlo_c PRIVATE TRACKDLO_WINDOWS)
+endif()
+
 target_include_directories(trackdlo_c PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
