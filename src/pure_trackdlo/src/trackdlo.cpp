@@ -8,6 +8,11 @@
 // ============================================================
 // [メモ] ヘルパー関数を1つだけ残している理由
 //
+// ヘルパー関数とは:
+//   ある公開関数の処理の一部を切り出して、コードを読みやすくするために作った補助的な関数。
+//   外部には公開せず、必ず親となる関数から呼ばれる。
+//   単体では意味をなさない。
+//
 // traverse_euclidean は tracking_step から alignment=0/1/2 の組み合わせで
 // 計7回呼ばれる。オクルージョン状態ごとに呼び方が変わるため、
 // 関数として切り出しておかないと tracking_step が読めなくなる。
@@ -19,18 +24,69 @@
 
 namespace trackdlo {
 
-namespace {  // このファイル内だけで使うファイルローカル関数
+namespace {  // anonymous
 
-// Pure Pursuit によるオクルージョン補間
-// guide_nodes の可視部分をたどり、geodesic_coord の間隔ごとに
-// ノード座標を推定して node_pairs として返す。
+// ============================================================
+// traverse_euclidean — Pure Pursuit によるオクルージョン補間
 //
-// alignment の意味:
-//   0 → head (index 0) 側から tail 方向へ伸ばす
-//   1 → tail (最終index) 側から head 方向へ伸ばす
-//   2 → 両端オクルージョン。alignment_node_idx を起点に tail 方向へ伸ばす
+// ─── 何をする関数か ──────────────────────────────────────────
 //
-// 返値: [[node_index, x, y, z], ...] の行列リスト (correspondence_priors の形式)
+// ケーブルの一部が障害物で隠れている (オクルージョン) とき、
+// 隠れた区間のノードは点群が存在しないため位置が分からない。
+//
+// この関数は「前フレームで見えていた形 (guide_nodes) をなぞって、
+// 隠れた区間のノードがおそらくこのあたりにある」という推定座標を作る。
+//
+// ─── アルゴリズム: Pure Pursuit ─────────────────────────────
+//
+// Pure Pursuit は自動運転のパス追従制御で使われる手法。
+// 「現在地からケーブルの長さ 1 セグメント分だけ先の点を
+//  guide_nodes 上で探し続ける」という操作を繰り返す。
+// 具体的には、現在地を中心とした球と guide_nodes の線分の
+// 交点 (line_sphere_intersection) を求めることで「1 セグメント先」を得る。
+//
+// ─── 引数まとめ ──────────────────────────────────────────────
+//
+//   geodesic_coord       測地線座標 (geodesic coordinate) = 曲線上の弧長パラメータ = 各ノードまでの累積経路長 (単位 m)
+//                        要素数はノード数 M と同じ。
+//                        geodesic_coord[0]=0 で始まり、geodesic_coord[i] はノード 0〜i を
+//                        結ぶ折れ線の長さ。隣接ノード間の「1 セグメント長」=
+//                        geodesic_coord[i+1] - geodesic_coord[i]
+//                        Pure Pursuit の look_ahead_dist として使う
+//
+//   guide_nodes          前フレームの可視ノード座標 (M×3)
+//                        Pure Pursuit がなぞる「パス」になる
+//                        tracking_step が毎フレーム更新して渡す
+//
+//   visible_nodes        現フレームで可視と判定されたノードのインデックス列
+//                        (compute_visible_nodes が返す visible_nodes_extended を渡す)
+//                        どの区間が可視でどの区間が隠れているかを示す
+//
+//   alignment            伸ばす方向を指定する
+//                          0 → head (index 0) 側から tail 方向へ伸ばす
+//                          1 → tail (最終index) 側から head 方向へ伸ばす
+//                          2 → 両端オクルージョン。alignment_node_idx を起点に tail 方向へ伸ばす
+//
+//   alignment_node_idx   alignment==2 のときのみ使用
+//                        両端オクルージョン時の起点ノードのインデックス
+//                        デフォルト -1 (alignment==0/1 では参照しない)
+//
+// ─── 返値 ────────────────────────────────────────────────────
+//
+//   std::vector<Eigen::MatrixXd>
+//     各要素は (1×4) 行列 [node_index, x, y, z]
+//     node_index: 推定座標を割り当てるノードの番号
+//     x, y, z:    そのノードの推定 3D 座標 (単位 m)
+//     → TrackdloState::correspondence_priors として cpd_lle() に渡す
+//
+// ─── 返値の使われ方 ──────────────────────────────────────────
+//
+// 返値 node_pairs は [[ノード番号, x, y, z], ...] の形で、
+// correspondence_priors として cpd_lle() に渡される。
+// cpd_lle はこの推定座標を「このノードはここにあるはずだ」という
+// 拘束として使い、隠れた区間のノードが飛んでいかないように抑える。
+//
+// ============================================================
 std::vector<Eigen::MatrixXd> traverse_euclidean(std::vector<double> geodesic_coord,
                                                  const Eigen::MatrixXd guide_nodes,
                                                  const std::vector<int> visible_nodes,
@@ -265,6 +321,28 @@ std::vector<Eigen::MatrixXd> traverse_euclidean(std::vector<double> geodesic_coo
 // 公開 API
 // ============================================================
 
+// ============================================================
+// make_trackdlo_state — 初期状態を生成するファクトリ関数
+//
+// ─── 何をする関数か ──────────────────────────────────────────
+//
+// TrackdloState は「フレーム間で引き継ぐ可変状態」を持つ構造体。
+// この関数はその初期値 (Y = 零行列, sigma2 = 0) を持つインスタンスを返す。
+//
+// Y の初期化は呼び出し側の責任。
+// 一般的には最初のフレームで sort_pts() / reg() を使って
+// 入力点群から等間隔に num_nodes 個のノードを抽出して Y に代入する。
+//
+// ─── 引数まとめ ──────────────────────────────────────────────
+//
+//   num_nodes   ノード数 M。セッション全体で変化しない定数。
+//               典型値は 10〜20 程度。ケーブルの全長を基に決める。
+//
+// ─── 返値 ────────────────────────────────────────────────────
+//
+//   TrackdloState   Y が (M×3) 零行列に初期化された状態オブジェクト
+//
+// ============================================================
 TrackdloState make_trackdlo_state(int num_nodes) {
     TrackdloState state;
     state.Y = Eigen::MatrixXd::Zero(num_nodes, 3);
@@ -273,9 +351,110 @@ TrackdloState make_trackdlo_state(int num_nodes) {
     return state;
 }
 
+// ============================================================
+// cpd_lle — CPD + LLE によるノード位置合わせ (アルゴリズム中核)
+//
+// ─── 何をする関数か ──────────────────────────────────────────
+//
+// trackdlo の最も重要な関数。入力点群 X に対してノード配列 Y を
+// 「なめらかに動かして合わせる」EM (期待値最大化) 最適化アルゴリズム。
+//
+// 呼び出すたびに Y と sigma2 が in-place で更新される。
+// 呼び出し元は更新後の Y を state.Y として次フレームに引き継ぐ。
+//
+// ─── アルゴリズム概要: CPD + LLE ────────────────────────────
+//
+// ■ CPD (Coherent Point Drift) の基本アイデア
+//   各ノード Y[m] を「ガウシアン混合モデル (GMM) の中心」として扱う。
+//   点群 X の各点がどのノードに属するかを確率 P で表し、
+//   X の尤度が最大になるようにノードを動かす。
+//   sigma2 は GMM の分散で、収束が進むにつれて小さくなっていく。
+//
+// ■ LLE (Locally Linear Embedding) 正則化
+//   「各ノードは近傍ノードの線形結合で表せる」という仮定。
+//   これにより隣り合うノードが極端に離れないよう形状が平滑化される。
+//   行列 H = (I-L)^T (I-L) として目的関数に加える。
+//
+// ■ 測地線距離ベースの対応確率
+//   単純なユークリッド距離ではなく、ケーブル上の弧長距離 (測地線距離) で
+//   対応確率を計算するよう改良されている。
+//   これにより「ケーブルが折れ曲がっている場合に遠い側のノードに
+//   誤対応する問題」を防ぐ。
+//
+// ■ EM ループ (max_iter 回まで繰り返し)
+//   Eステップ: 各点とノードの対応確率行列 P (M×N) を更新する
+//   Mステップ: P を固定して W (変形パラメータ) を解く線形方程式
+//              A*W = B を解き、T = Y_0 + G*W でノード位置を更新する
+//   収束判定: ノード移動量の平均 < tol になったら早期終了
+//
+// ─── 引数まとめ ──────────────────────────────────────────────
+//
+//   X_orig      入力点群 (N×3)。各フレームで変わる変数。
+//               内部で各ノードから 0.1m 以内の点だけに絞り込む。
+//
+//   Y           ノード座標 (M×3)。in-place で更新される。
+//               呼び出し前は前フレームの結果を入れておく。
+//
+//   sigma2      GMM の分散。in-place で更新される。
+//               0 を渡すと初回自動初期化する。フレーム間で引き継ぐ。
+//
+//   beta        ガウシアンカーネル G の帯域幅 (m 単位)。
+//               大きいほど遠くのノード同士が連動して動く (滑らかになる)。
+//               典型値: 0.35
+//
+//   lambda      CPD 正則化強度。大きいほど変形が小さく抑えられる。
+//               典型値: 50000
+//
+//   lle_weight  LLE 形状正則化の重み。大きいほど直線状を保とうとする。
+//               典型値: 10
+//
+//   mu          外れ値 (ノイズ点) の割合 [0,1]。
+//               大きいほど外れ値への耐性が上がるが感度が下がる。
+//               典型値: 0.1
+//
+//   max_iter    EM ループの最大反復回数。
+//               典型値: 50
+//
+//   tol         収束判定閾値 (ノード移動量の平均)。
+//               典型値: 0.0002
+//
+//   include_lle LLE 正則化を使うか否かのフラグ。
+//               tracking_step から呼ぶ本番パスは false
+//               (correspondence_priors で制約するため LLE は不要)。
+//               前処理パスは true。
+//
+//   correspondence_priors
+//               traverse_euclidean が生成したオクルージョン補間結果。
+//               各要素は (1×4) 行列 [node_index, x, y, z]。
+//               このノードはこの座標にいるはず、という拘束として使う。
+//               可視ノードのみの場合は空ベクトル {} を渡す。
+//
+//   alpha       correspondence_priors の拘束強度。
+//               大きいほど traverse_euclidean の推定に強く従う。
+//               典型値: 3.0
+//
+//   visible_nodes
+//               現フレームで可視と判定されたノードのインデックス列。
+//               空なら全ノード可視として扱う。
+//
+//   k_vis       可視確率の減衰係数。大きいほど非可視ノードの影響が
+//               強く抑制される。典型値: 50
+//
+//   visibility_threshold
+//               ノードが「可視」と見なす最大距離 (m)。
+//               ノード ↔ 最近傍点の距離がこれ以下なら P_vis = 1。
+//               典型値: 0.008
+//
+// ─── 返値 ────────────────────────────────────────────────────
+//
+//   bool   true = max_iter 内に収束した
+//          false = max_iter 到達で打ち切り (非収束)
+//   Y と sigma2 は引数として in-place 更新される (返値ではない)
+//
+// ============================================================
 bool cpd_lle(const Eigen::MatrixXd& X_orig,
-             Eigen::MatrixXd& Y,
-             double& sigma2,
+             Eigen::MatrixXd& out_Y,
+             double& out_sigma2,
              double beta,
              double lambda,
              double lle_weight,
@@ -294,8 +473,8 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
     int valid_pt_counter = 0;
     for (int i = 0; i < X_orig.rows(); i++) {
         double shortest_dist = 100000;
-        for (int j = 0; j < Y.rows(); j++) {
-            double dist = (Y.row(j) - X_orig.row(i)).norm();
+        for (int j = 0; j < out_Y.rows(); j++) {
+            double dist = (out_Y.row(j) - X_orig.row(i)).norm();
             if (dist < shortest_dist) shortest_dist = dist;
         }
         if (shortest_dist < 0.1) {
@@ -307,11 +486,11 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
 
     bool converged = true;
 
-    int M = Y.rows();
+    int M = out_Y.rows();
     int N = X.rows();
     int D = 3;
 
-    Eigen::MatrixXd Y_0 = Y.replicate(1, 1);
+    Eigen::MatrixXd Y_0 = out_Y.replicate(1, 1);
 
     // 隣接ノード間の測地線座標 (累積弧長) を計算する
     // CPDのガウシアンカーネルGは測地線距離ベースで計算するため必要
@@ -417,8 +596,8 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         }
     }
 
-    if (sigma2 == 0) {
-        sigma2 = diff_xy.sum() / static_cast<double>(D * M * N);
+    if (out_sigma2 == 0) {
+        out_sigma2 = diff_xy.sum() / static_cast<double>(D * M * N);
     }
 
     for (int it = 0; it < max_iter; it++) {
@@ -428,8 +607,8 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         for (int m = 0; m < M; m++) {
             double shortest_dist = 10000;
             for (int n = 0; n < N; n++) {
-                diff_xy(m, n) = (Y.row(m) - X.row(n)).squaredNorm();
-                double dist = (Y.row(m) - X.row(n)).norm();
+                diff_xy(m, n) = (out_Y.row(m) - X.row(n)).squaredNorm();
+                double dist = (out_Y.row(m) - X.row(n)).norm();
                 if (dist < shortest_dist) shortest_dist = dist;
             }
             if (shortest_dist <= visibility_threshold) shortest_dist = 0;
@@ -437,8 +616,8 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         }
 
         // E step: 対応確率行列 P を計算する
-        Eigen::MatrixXd P = (-0.5 * diff_xy / sigma2).array().exp();
-        double c = pow((2 * M_PI * sigma2), static_cast<double>(D)/2) * mu / (1 - mu) * static_cast<double>(M)/N;
+        Eigen::MatrixXd P = (-0.5 * diff_xy / out_sigma2).array().exp();
+        double c = pow((2 * M_PI * out_sigma2), static_cast<double>(D)/2) * mu / (1 - mu) * static_cast<double>(M)/N;
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
 
         // 測地線距離ベースの P に更新する
@@ -456,44 +635,44 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
             int potential_2nd_2 = max_p_node + 1;
             if (potential_2nd_2 == M) potential_2nd_2 = M - 3;
 
-            int next_max_p_node = (pt2pt_dis(Y.row(potential_2nd_1), X.row(i)) < pt2pt_dis(Y.row(potential_2nd_2), X.row(i)))
+            int next_max_p_node = (pt2pt_dis(out_Y.row(potential_2nd_1), X.row(i)) < pt2pt_dis(out_Y.row(potential_2nd_2), X.row(i)))
                                   ? potential_2nd_1 : potential_2nd_2;
 
-            pts_dis_sq_geodesic(max_p_node, i)  = pt2pt_dis_sq(Y.row(max_p_node), X.row(i));
-            pts_dis_sq_geodesic(next_max_p_node, i) = pt2pt_dis_sq(Y.row(next_max_p_node), X.row(i));
+            pts_dis_sq_geodesic(max_p_node, i)  = pt2pt_dis_sq(out_Y.row(max_p_node), X.row(i));
+            pts_dis_sq_geodesic(next_max_p_node, i) = pt2pt_dis_sq(out_Y.row(next_max_p_node), X.row(i));
 
             if (max_p_node < next_max_p_node) {
                 for (int j = 0; j < max_p_node; j++) {
-                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[max_p_node]) + pt2pt_dis(Y.row(max_p_node), X.row(i)), 2);
+                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[max_p_node]) + pt2pt_dis(out_Y.row(max_p_node), X.row(i)), 2);
                 }
                 for (int j = next_max_p_node; j < M; j++) {
-                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[next_max_p_node]) + pt2pt_dis(Y.row(next_max_p_node), X.row(i)), 2);
+                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[next_max_p_node]) + pt2pt_dis(out_Y.row(next_max_p_node), X.row(i)), 2);
                 }
             }
             else {
                 for (int j = 0; j < next_max_p_node; j++) {
-                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[next_max_p_node]) + pt2pt_dis(Y.row(next_max_p_node), X.row(i)), 2);
+                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[next_max_p_node]) + pt2pt_dis(out_Y.row(next_max_p_node), X.row(i)), 2);
                 }
                 for (int j = max_p_node; j < M; j++) {
-                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[max_p_node]) + pt2pt_dis(Y.row(max_p_node), X.row(i)), 2);
+                    pts_dis_sq_geodesic(j, i) = pow(abs(converted_node_coord[j] - converted_node_coord[max_p_node]) + pt2pt_dis(out_Y.row(max_p_node), X.row(i)), 2);
                 }
             }
         }
 
-        P = (-0.5 * pts_dis_sq_geodesic / sigma2).array().exp();
+        P = (-0.5 * pts_dis_sq_geodesic / out_sigma2).array().exp();
 
         // 可視確率 P_vis で P を重み付けする (一部ノードがオクルージョン下にある場合)
-        if (visible_nodes.size() != static_cast<size_t>(Y.rows()) && !visible_nodes.empty() && k_vis != 0) {
+        if (visible_nodes.size() != static_cast<size_t>(out_Y.rows()) && !visible_nodes.empty() && k_vis != 0) {
             Eigen::MatrixXd P_vis = Eigen::MatrixXd::Ones(P.rows(), P.cols());
             double total_P_vis = 0;
-            for (int i = 0; i < Y.rows(); i++) {
+            for (int i = 0; i < out_Y.rows(); i++) {
                 double P_vis_i = exp(-k_vis * shortest_node_pt_dists[i]);
                 total_P_vis += P_vis_i;
                 P_vis.row(i) = P_vis_i * P_vis.row(i);
             }
             P_vis = P_vis / total_P_vis;
             P = P.cwiseProduct(P_vis);
-            c = pow((2 * M_PI * sigma2), static_cast<double>(D)/2) * mu / (1 - mu) / N;
+            c = pow((2 * M_PI * out_sigma2), static_cast<double>(D)/2) * mu / (1 - mu) / N;
             P = P.array().rowwise() / (P.colwise().sum().array() + c);
         }
         else {
@@ -510,21 +689,21 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         Eigen::MatrixXd B_matrix;
         if (include_lle) {
             if (correspondence_priors.size() != 0) {
-                A_matrix = P1.asDiagonal()*G + lambda*sigma2 * Eigen::MatrixXd::Identity(M, M) + sigma2*lle_weight * H*G + alpha*J*G;
-                B_matrix = PX - P1.asDiagonal()*Y_0 - sigma2*lle_weight * H*Y_0 + alpha*(Y_extended - Y_0);
+                A_matrix = P1.asDiagonal()*G + lambda*out_sigma2 * Eigen::MatrixXd::Identity(M, M) + out_sigma2*lle_weight * H*G + alpha*J*G;
+                B_matrix = PX - P1.asDiagonal()*Y_0 - out_sigma2*lle_weight * H*Y_0 + alpha*(Y_extended - Y_0);
             }
             else {
-                A_matrix = P1.asDiagonal()*G + lambda*sigma2 * Eigen::MatrixXd::Identity(M, M) + sigma2*lle_weight * H*G;
-                B_matrix = PX - P1.asDiagonal()*Y_0 - sigma2*lle_weight * H*Y_0;
+                A_matrix = P1.asDiagonal()*G + lambda*out_sigma2 * Eigen::MatrixXd::Identity(M, M) + out_sigma2*lle_weight * H*G;
+                B_matrix = PX - P1.asDiagonal()*Y_0 - out_sigma2*lle_weight * H*Y_0;
             }
         }
         else {
             if (correspondence_priors.size() != 0) {
-                A_matrix = P1.asDiagonal() * G + lambda * sigma2 * Eigen::MatrixXd::Identity(M, M) + alpha*J*G;
+                A_matrix = P1.asDiagonal() * G + lambda * out_sigma2 * Eigen::MatrixXd::Identity(M, M) + alpha*J*G;
                 B_matrix = PX - P1.asDiagonal() * Y_0 + alpha*(Y_extended - Y_0);
             }
             else {
-                A_matrix = P1.asDiagonal() * G + lambda * sigma2 * Eigen::MatrixXd::Identity(M, M);
+                A_matrix = P1.asDiagonal() * G + lambda * out_sigma2 * Eigen::MatrixXd::Identity(M, M);
                 B_matrix = PX - P1.asDiagonal() * Y_0;
             }
         }
@@ -535,19 +714,19 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
         double trXtdPt1X = (X.transpose() * Pt1.asDiagonal() * X).trace();
         double trPXtT    = (PX.transpose() * T).trace();
         double trTtdP1T  = (T.transpose() * P1.asDiagonal() * T).trace();
-        sigma2 = (trXtdPt1X - 2*trPXtT + trTtdP1T) / (Np * D);
-        // Np=0 などで sigma2 が NaN/負 になると Y が NaN に汚染されて
+        out_sigma2 = (trXtdPt1X - 2*trPXtT + trTtdP1T) / (Np * D);
+        // Np=0 などで out_sigma2 が NaN/負 になると out_Y が NaN に汚染されて
         // 後続の traverse_euclidean でヒープ破壊が起きる。
         // 最小値にクランプして NaN 伝播を防ぐ。
-        if (std::isnan(sigma2) || sigma2 <= 0) sigma2 = 1e-8;
+        if (std::isnan(out_sigma2) || out_sigma2 <= 0) out_sigma2 = 1e-8;
 
-        if (pt2pt_dis(Y, Y_0 + G*W) / Y.rows() < tol) {
-            Y = Y_0 + G*W;
+        if (pt2pt_dis(out_Y, Y_0 + G*W) / out_Y.rows() < tol) {
+            out_Y = Y_0 + G*W;
             std::cout << "Iteration until convergence: " << (it+1) << std::endl;
             break;
         }
         else {
-            Y = Y_0 + G*W;
+            out_Y = Y_0 + G*W;
         }
 
         if (it == max_iter - 1) {
@@ -560,7 +739,76 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
     return converged;
 }
 
-void tracking_step(TrackdloState& state,
+// ============================================================
+// tracking_step — 1フレーム分のトラッキング処理オーケストレーター
+//
+// ─── 何をする関数か ──────────────────────────────────────────
+//
+// 1フレーム (1ステップ) ごとに呼ぶ関数。
+// ROS2 コールバックからでも while/for ループからでも呼ぶ関数。
+// 前処理で生成された入力点群 X と可視ノードのインデックス列を受け取り、
+// 内部で cpd_lle / traverse_euclidean を組み合わせて
+// state.Y (ノード座標) を最終更新する。
+//
+// 内部では「前処理 cpd_lle → オクルージョン状態判定 →
+// traverse_euclidean で correspondence_priors 構築 → 本番 cpd_lle」
+// という順に処理を進める。各処理の詳細は Step 1〜4 を参照。
+//
+// ─── 処理フロー ──────────────────────────────────────────────
+//
+//  Step 1: 可視ノード座標を state.guide_nodes に抽出する
+//          visible_nodes_extended に含まれるノードの座標だけを取り出す。
+//          guide_nodes = 前フレームの可視ノード位置のスナップショット。
+//          Pure Pursuit がなぞる「パス」になる。
+//
+//  Step 2: guide_nodes を簡易 CPD で粗く合わせる (前処理パス)
+//          beta_pre_proc / lambda_pre_proc は本番とは別パラメータ。
+//          include_lle=true で形状制約を強くかけて素早く収束させる。
+//          sigma2 は一時変数 sigma2_pre_proc を使い state.sigma2 は変えない。
+//
+//  Step 3: オクルージョン状態を 5 分類して correspondence_priors を構築
+//          分類:
+//            全可視 / 小オクルージョン  → traverse_euclidean x2 (両側) + 平均
+//            中間オクルージョン          → traverse_euclidean x2 (両側) + 結合
+//            片端 (tail) オクルージョン  → traverse_euclidean x1 (alignment=0)
+//            片端 (head) オクルージョン  → traverse_euclidean x1 (alignment=1)
+//            両端オクルージョン          → traverse_euclidean x1 (alignment=2)
+//
+//  Step 4: cpd_lle で state.Y を最終更新
+//          include_lle=false、correspondence_priors を拘束として渡す。
+//          state.sigma2 も更新される。
+//
+// ─── 引数まとめ ──────────────────────────────────────────────
+//
+//   state                    in/out。Y・guide_nodes・sigma2・
+//                            correspondence_priors を書き換える。
+//                            geodesic_coord は読み取るだけ (呼び出し前に初期化必須)。
+//
+//   X                        入力点群 (N×3)。各フレームで変わる。
+//                            preprocessing::images_to_pointcloud() の出力。
+//
+//   visible_nodes            可視ノードのインデックス列。
+//                            compute_visible_nodes() の出力 (厳しい閾値版)。
+//                            オクルージョン状態の分類に使う。
+//
+//   visible_nodes_extended   可視ノードのインデックス列 (拡張版)。
+//                            compute_visible_nodes() の出力 (緩い閾値版)。
+//                            guide_nodes 抽出と traverse_euclidean に使う。
+//
+//   params                   TrackdloParams。beta / lambda 等の定数。
+//
+// ─── 返値 ────────────────────────────────────────────────────
+//
+//   なし (void)。state が in-place で更新される。
+//   呼び出し後に state.Y を読み取ると最新ノード座標が得られる。
+//
+//   [メモ] in-place 更新とは
+//     新しいオブジェクトを返すのではなく、渡した変数自体を書き換えること。
+//     C++ では引数に & (参照) をつけることで実現する。
+//     「関数を呼んだら引数が変わっていた」という動作が in-place 更新。
+//
+// ============================================================
+TrackdloState tracking_step(TrackdloState state,
                    const Eigen::MatrixXd& X,
                    const std::vector<int>& visible_nodes,
                    const std::vector<int>& visible_nodes_extended,
@@ -581,7 +829,7 @@ void tracking_step(TrackdloState& state,
 
     // 前処理: guide_nodes を簡易CPD で粗く合わせる (sigma2 は一時変数で更新)
     double sigma2_pre_proc = state.sigma2;
-    cpd_lle(X, state.guide_nodes, sigma2_pre_proc,
+    cpd_lle(X, state.guide_nodes, sigma2_pre_proc,  // out_Y=guide_nodes, out_sigma2=sigma2_pre_proc (in-place update)
             params.beta_pre_proc, params.lambda_pre_proc, params.lle_weight,
             params.mu, params.max_iter, params.tol, true);
 
@@ -655,12 +903,14 @@ void tracking_step(TrackdloState& state,
         state.correspondence_priors = traverse_euclidean(state.geodesic_coord, state.guide_nodes, visible_nodes_extended, 2, alignment_node_idx);
     }
 
-    cpd_lle(X, state.Y, state.sigma2,
+    cpd_lle(X, state.Y, state.sigma2,               // out_Y=state.Y, out_sigma2=state.sigma2 (in-place update)
             params.beta, params.lambda, params.lle_weight,
             params.mu, params.max_iter, params.tol,
             false,
             state.correspondence_priors, params.alpha,
             visible_nodes_extended, params.k_vis, params.visibility_threshold);
+
+    return state;
 }
 
 } // namespace trackdlo

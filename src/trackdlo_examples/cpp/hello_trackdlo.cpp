@@ -71,7 +71,7 @@ static trackdlo::TrackdloState initialize(const Eigen::MatrixXd& X, int M) {
     // cpd_lle: 初期ノードを点群にフィットさせる
     // (reg() は Y_init を無視して原点から始めるため、ここでは使わない)
     bool ok = trackdlo::cpd_lle(
-        X, state.Y, state.sigma2,
+        X, state.Y, state.sigma2,  // out_Y=state.Y, out_sigma2=state.sigma2 (in-place update)
         /*beta=*/5.0, /*lambda=*/1.0, /*lle_weight=*/1.0, /*mu=*/0.05
     );
     std::cout << "  cpd_lle converged: " << (ok ? "yes" : "no") << "\n";
@@ -133,8 +133,7 @@ int main() {
         double bend = 0.05 * f;
         Eigen::MatrixXd X = make_cable_cloud(N, bend, /*seed=*/f);
 
-        // トラッキング: state.Y と state.sigma2 が in-place で更新される
-        trackdlo::tracking_step(state, X, all_nodes, all_nodes, params);
+        state = trackdlo::tracking_step(state, X, all_nodes, all_nodes, params);
 
         // 結果を表示
         double length = state.geodesic_coord.back();

@@ -53,7 +53,7 @@ static trackdlo::TrackdloState make_state(const Eigen::MatrixXd& X, int M) {
         state.Y.row(i) = x_min + t * (x_max - x_min);
     }
 
-    trackdlo::cpd_lle(X, state.Y, state.sigma2, 5.0, 1.0, 1.0, 0.05);
+    trackdlo::cpd_lle(X, state.Y, state.sigma2, 5.0, 1.0, 1.0, 0.05);  // out_Y=state.Y, out_sigma2=state.sigma2 (in-place update)
     state.Y = trackdlo::sort_pts(state.Y);
 
     state.geodesic_coord.resize(M);
@@ -93,7 +93,7 @@ static void pattern1_stack() {
 
     for (int f = 1; f <= 3; f++) {
         Eigen::MatrixXd X = make_cloud(N, 0.05 * f, f);
-        trackdlo::tracking_step(state, X, all, all, params);
+        state = trackdlo::tracking_step(state, X, all, all, params);
     }
 
     std::cout << "  Y[0]   = " << state.Y.row(0) << "\n";
@@ -141,7 +141,7 @@ static void pattern2_optional() {
         } else {
             // 初期化済み → トラッキング
             // state-> で optional の中の TrackdloState にアクセス
-            trackdlo::tracking_step(*state, X, all, all, params);
+            *state = trackdlo::tracking_step(*state, X, all, all, params);
             std::cout << "  frame " << f
                       << ": Y[0]=" << state->Y.row(0) << "\n";
         }
@@ -190,7 +190,7 @@ static void pattern3_unique_ptr() {
     for (int f = 1; f <= 3; f++) {
         Eigen::MatrixXd X = make_cloud(N, 0.05 * f, f);
         // unique_ptr には -> でメンバにアクセスする (生ポインタと同じ記法)
-        trackdlo::tracking_step(*state, X, all, all, params);
+        *state = trackdlo::tracking_step(*state, X, all, all, params);
         std::cout << "  frame " << f
                   << ": Y[0]=" << state->Y.row(0) << "\n";
     }
@@ -226,7 +226,7 @@ static void pattern4_raw_pointer_BAD() {
     std::vector<int> all(M);
     std::iota(all.begin(), all.end(), 0);
 
-    trackdlo::tracking_step(*state, make_cloud(N, 0.05, 1), all, all, params);
+    *state = trackdlo::tracking_step(*state, make_cloud(N, 0.05, 1), all, all, params);
     std::cout << "  Y[0]=" << state->Y.row(0) << "\n";
 
     // ここで例外が発生したり return が増えたりすると delete が呼ばれない。

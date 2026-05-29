@@ -53,6 +53,7 @@ cv::Mat color_threshold(const cv::Mat& rgb_bgr,
     return mask;
 }
 
+
 cv::Mat color_threshold_multicolor(const cv::Mat& rgb_bgr) {
     cv::Mat hsv;
     cv::cvtColor(rgb_bgr, hsv, cv::COLOR_BGR2HSV);
@@ -76,6 +77,7 @@ cv::Mat color_threshold_multicolor(const cv::Mat& rgb_bgr) {
     cv::bitwise_or(mask_yellow, mask,      mask);
     return mask;
 }
+
 
 Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
                                const cv::Mat& depth,
@@ -146,8 +148,76 @@ Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
     return downsampled.getMatrixXfMap().topRows(3).transpose().cast<double>();
 }
 
-// ノード可視性計算
-// 前フレームのノード座標Yをカメラ画像に投影し、点群Xとの距離からどのノードが見えているかを判定する。
+
+// ============================================================
+// compute_visible_nodes — ノード可視性計算
+//
+// ─── 背景・前提 ────────────────────────────────────────────
+//
+// trackdlo はケーブル (DLO) の形状を M 個の代表点 (ノード) で表す。
+// ノードの座標列 Y (M×3) が「今フレームでのケーブルの推定形状」であり、
+// これは前のフレームから引き継いだ状態量 (TrackdloState::Y) として保持されている。
+//
+// RealSense などの RGB-D カメラは 1 フレームごとに
+//   ・カラー画像   (RGB)
+//   ・深度画像     (各画素までの距離)
+// を出力する。これらから color_threshold() → images_to_pointcloud() を経て
+// ケーブル色の 3D 点群 X (N×3) が得られる。
+//
+// この関数は、前フレームのノード Y と現フレームの点群 X を突き合わせ、
+// 各ノードが「今のカメラ視点から見えているか」を判定する。
+//
+// ─── なぜ可視性が必要か ─────────────────────────────────
+//
+// ケーブルは箱や机の下に隠れることがある (オクルージョン)。
+// 隠れている区間のノードに対して「ここに点群があるはずだ」と
+// 強く引き寄せようとすると、点群の無い方向へノードが飛んでしまう。
+// visible_nodes = 「現在カメラで見えているノードの番号リスト」を
+// tracking_step() に渡すことで、見えていないノードは点群への引き寄せを
+// 弱め、代わりに測地線補間で形状を維持するよう切り替えられる。
+//
+// ─── 判定の2条件 ──────────────────────────────────────────
+//
+// ノード m が可視とみなされるには以下を両方満たす必要がある:
+//
+//   条件 A: 点群との最短距離 ≤ visibility_threshold (m)
+//     ノードの 3D 座標の近傍に点群の点が存在する
+//     = 「そこにケーブルが実際に見えている」
+//
+//   条件 B: セルフオクルージョンしていない
+//     ケーブル自身が自分の一部を隠す場合がある (例: ループ状になった時)。
+//     近い方のエッジを先にカメラ投影画像に描画し、
+//     後で投影されるエッジの位置がすでに描画済みなら「後ろに隠れている」と判定する。
+//
+// ─── 2 種類の出力 ──────────────────────────────────────────
+//
+//   visible_nodes
+//     上記 2 条件を満たしたノードのインデックス列 (ソート済み)。
+//     ケーブルが部分的に隠れている場合、隠れている区間のインデックスは含まれない。
+//
+//   visible_nodes_extended
+//     visible_nodes の隣接ペア間の測地線距離が d_vis 以内であれば
+//     間のノードも可視とみなして補完したリスト。
+//     小さなオクルージョンギャップ (数 cm 程度の隙間) を埋める目的で使う。
+//     tracking_step() 内部では cpd_lle の前処理 (guide_nodes の更新) に使われる。
+//
+// ─── 引数まとめ ────────────────────────────────────────────
+//
+//   Y                    前フレームから引き継いだノード座標 (M×3, 単位 m)
+//                        M = ノード数 (make_trackdlo_state(M) で決める定数。典型値 10〜20)
+//   X                    現フレームの入力点群 (N×3, 単位 m)
+//                        N = 点群の点数 (フレームごとに変わる変数。典型値 数百〜数万)
+//   proj_matrix          カメラ射影行列 (3×4)  [ fx 0 cx 0 / 0 fy cy 0 / 0 0 1 0 ]
+//   geodesic_coord       各ノードの累積弧長 (M 要素, 単位 m)
+//                        visible_nodes_extended のギャップ判定 (d_vis との比較) に使用
+//   img_rows, img_cols   カメラ画像のサイズ (画素)。投影マスクの生成に使用
+//   visibility_threshold 条件 A の閾値 (m)。典型値: 0.01 〜 0.02 m
+//   d_vis                visible_nodes_extended のギャップ許容幅 (m)。典型値: 0.05 〜 0.1 m
+//   dlo_pixel_width      投影エッジの描画幅 (画素)。大きいほどセルフオクルージョン判定が緩くなる
+//   visible_nodes        出力: 可視ノードのインデックス列
+//   visible_nodes_extended 出力: ギャップ補完済みの拡張可視ノードインデックス列
+//
+// ============================================================
 void compute_visible_nodes(const Eigen::MatrixXd& Y,
                            const Eigen::MatrixXd& X,
                            const Eigen::MatrixXd& proj_matrix,
@@ -188,7 +258,8 @@ void compute_visible_nodes(const Eigen::MatrixXd& Y,
             return averaged_node_camera_dists[a] < averaged_node_camera_dists[b];
         });
 
-    // Step 3: ノードを同次座標に拡張して2D画像座標に投影する
+    // Step 3: 各ノードの 3D 座標 (X,Y,Z) に 1 を付け足して (X,Y,Z,1) にし (同次座標に拡張)、
+    //         射影行列とかけることで 2D 画像座標に投影する
     // Y_h = [Y | 1] (M×4), image_coords = proj_matrix * Y_h^T (M×3)
     // 画像座標: u = image_coords(i,0)/image_coords(i,2)
     //           v = image_coords(i,1)/image_coords(i,2)

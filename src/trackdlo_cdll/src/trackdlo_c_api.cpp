@@ -152,7 +152,7 @@ void tdlo_tracking_step(
     p.lle_weight           = params->lle_weight;
     p.visibility_threshold = params->visibility_threshold;
 
-    trackdlo::tracking_step(*st, X_mat, visible_nodes, visible_nodes_ext, p);
+    *st = trackdlo::tracking_step(*st, X_mat, visible_nodes, visible_nodes_ext, p);
 }
 
 // ----------------------------------------------------------------
@@ -179,7 +179,7 @@ int tdlo_cpd_lle(
     }
 
     bool converged = trackdlo::cpd_lle(
-        X_mat, Y_mat, sig2,
+        X_mat, Y_mat, sig2,  // out_Y=Y_mat, out_sigma2=sig2 (in-place update)
         beta, lambda, lle_weight, mu,
         max_iter, tol, include_lle != 0,
         {}, alpha, visible_nodes, k_vis, visibility_threshold

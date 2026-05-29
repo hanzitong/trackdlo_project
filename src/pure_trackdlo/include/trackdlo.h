@@ -50,7 +50,8 @@ struct TrackdloState {
     Eigen::MatrixXd Y;                                    // ノード座標 (M×3)
     Eigen::MatrixXd guide_nodes;                          // 前フレームの可視ノード座標
     double sigma2 = 0.0;                                  // ガウシアン分散 (フレーム間で引き継ぐ)
-    std::vector<double> geodesic_coord;                   // 各ノードの累積弧長 (測地線座標)
+    std::vector<double> geodesic_coord;                   // 各ノードの累積弧長 (測地線座標 = 曲線上の弧長パラメータ)
+                                                          // geodesic_coord[0]=0, geodesic_coord[i]=ノード0〜iの経路長 (単位 m)
     std::vector<Eigen::MatrixXd> correspondence_priors;   // オクルージョン補間結果 (次フレームへ)
 };
 
@@ -61,8 +62,8 @@ TrackdloState make_trackdlo_state(int num_nodes);
 // X: 入力点群 (N×3)
 // Y, sigma2: in/out — 更新されてトラッキング結果になる
 bool cpd_lle(const Eigen::MatrixXd& X,
-             Eigen::MatrixXd& Y,
-             double& sigma2,
+             Eigen::MatrixXd& out_Y,
+             double& out_sigma2,
              double beta,
              double lambda,
              double lle_weight,
@@ -79,7 +80,7 @@ bool cpd_lle(const Eigen::MatrixXd& X,
 // フレームごとのトラッキング処理。state を in-place で更新する。
 // 呼ぶ前に state.geodesic_coord を初期化しておくこと。
 // visible_nodes / visible_nodes_extended は preprocessing::compute_visible_nodes() で取得する。
-void tracking_step(TrackdloState& state,
+TrackdloState tracking_step(TrackdloState state,
                    const Eigen::MatrixXd& X,
                    const std::vector<int>& visible_nodes,
                    const std::vector<int>& visible_nodes_extended,

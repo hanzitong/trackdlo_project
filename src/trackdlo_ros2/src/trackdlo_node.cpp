@@ -310,7 +310,7 @@ private:
 
         // ---- トラッキング ----
         auto t0 = std::chrono::steady_clock::now();
-        trackdlo::tracking_step(state_, X, visible_nodes, visible_nodes_extended, params_);
+        state_ = trackdlo::tracking_step(state_, X, visible_nodes, visible_nodes_extended, params_);
         auto t1 = std::chrono::steady_clock::now();
         double ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1000.0;
         RCLCPP_INFO(this->get_logger(), "tracking_step: %.1f ms", ms);
