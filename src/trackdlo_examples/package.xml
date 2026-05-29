@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>trackdlo_examples</name>
+  <version>0.1.0</version>
+  <description>
+    pure_trackdlo および trackdlo_cdll の使い方サンプル集。
+    複数パッケージにまたがる処理の統合的な使用例を示す。
+  </description>
+  <maintainer email="hanzitong1218@gmail.com">Han Zitong</maintainer>
+  <license>MIT</license>
+
+  <!-- colcon がこれらを先にビルドするようにする -->
+  <depend>pure_trackdlo</depend>
+  <depend>trackdlo_cdll</depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

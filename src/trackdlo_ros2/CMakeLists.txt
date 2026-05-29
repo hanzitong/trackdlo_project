@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(trackdlo)
+project(trackdlo_ros2)
 
 set(CMAKE_CXX_STANDARD 17)
 add_compile_options(-O3)

@@ -28,6 +28,10 @@
 // ガウシアンノイズを加えて実際のマスクから得られる点群を模倣する。
 // bend_y を 0 以外にすると Y 方向に曲げた形状を作れる。
 // ============================================================
+/* written by Han
+N: the number of point cloud (the number of points)
+X: matrix of all generated point cloud
+*/
 static Eigen::MatrixXd make_cable_cloud(int N, double bend_y, unsigned seed) {
     std::mt19937 rng(seed);
     std::normal_distribution<double> noise(0.0, 0.005);  // 5mm の標準偏差
@@ -35,6 +39,7 @@ static Eigen::MatrixXd make_cable_cloud(int N, double bend_y, unsigned seed) {
     Eigen::MatrixXd X(N, 3);
     for (int i = 0; i < N; i++) {
         double t    = static_cast<double>(i) / (N - 1);  // 0 〜 1
+
         X(i, 0) = t + noise(rng);
         X(i, 1) = bend_y * std::sin(t * M_PI) + noise(rng);  // 半円弧状に曲げる
         X(i, 2) = 1.0 + noise(rng);  // カメラから 1m 先

@@ -6,6 +6,9 @@ add_compile_options(-O3)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
+# ---- ライブラリ本体 ----
+# Linux (.a) でも Windows クロスコンパイル (.a → .dll に静的リンク) でも
+# 常にビルドする。クロスコンパイル判定は CMAKE_CROSSCOMPILING で行う。
 add_library(pure_trackdlo
     src/trackdlo.cpp
     src/utils.cpp
@@ -17,25 +20,28 @@ target_include_directories(pure_trackdlo PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(pure_trackdlo Eigen3::Eigen)
-# pybind11 拡張 (.so) からリンクするために -fPIC が必要
-set_target_properties(pure_trackdlo PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# trackdlo_cdll が SHARED ライブラリとして pure_trackdlo を静的リンクするために -fPIC が必要
+set_target_properties(pure_trackdlo
+    PROPERTIES POSITION_INDEPENDENT_CODE ON
+)
 
-# ---- サンプルプログラム ----
-add_executable(hello_trackdlo examples/hello_trackdlo.cpp)
-target_link_libraries(hello_trackdlo pure_trackdlo)
+# ---- テスト ----
+# サンプルプログラムは trackdlo_examples パッケージに移動済み。
+# クロスコンパイル時 (Windows 向けビルド) はホスト上で実行できないため除外する
+if(NOT CMAKE_CROSSCOMPILING)
+    enable_testing()
+    find_package(GTest REQUIRED)
 
-enable_testing()
-find_package(GTest REQUIRED)
+    add_executable(test_utils tests/test_utils.cpp)
+    target_link_libraries(test_utils pure_trackdlo GTest::gtest_main)
 
-add_executable(test_utils tests/test_utils.cpp)
-target_link_libraries(test_utils pure_trackdlo GTest::gtest_main)
+    add_executable(test_trackdlo tests/test_trackdlo.cpp)
+    target_link_libraries(test_trackdlo pure_trackdlo GTest::gtest_main)
 
-add_executable(test_trackdlo tests/test_trackdlo.cpp)
-target_link_libraries(test_trackdlo pure_trackdlo GTest::gtest_main)
-
-include(GoogleTest)
-gtest_discover_tests(test_utils)
-gtest_discover_tests(test_trackdlo)
+    include(GoogleTest)
+    gtest_discover_tests(test_utils)
+    gtest_discover_tests(test_trackdlo)
+endif()
 
 # ---- インストール & cmake package config 生成 ----
 # colcon build 後、downstream が find_package(pure_trackdlo REQUIRED) できるようにする

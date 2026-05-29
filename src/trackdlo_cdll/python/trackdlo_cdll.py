@@ -158,18 +158,51 @@ _lib.tdlo_reg.argtypes = [
 #
 # C++ の TrackdloState オブジェクトを _handle (void*) として保持する。
 #
-# __del__: Python の GC がこのオブジェクトを回収するときに呼ばれる。
-#          ここで tdlo_state_free を呼ぶことで C++ 側のメモリも解放する。
-#          忘れるとメモリリークになる。
+# メモリ管理の方針:
+#   C++ 側で new したオブジェクトを Python 側で確実に delete するために
+#   3つの手段を用意している。
+#
+#   1. with 文 (推奨)
+#      __enter__ / __exit__ でコンテキストマネージャとして使う。
+#      with ブロックを抜けると例外の有無に関わらず必ず close() が呼ばれる。
+#      C++ の RAII に相当する Python のイディオム。
+#
+#   2. close() の明示的呼び出し
+#      try / finally と組み合わせて使う。
+#      with 文が使えない場面 (クラスのメンバ変数として持つ場合など) に使う。
+#
+#   3. __del__ (フォールバック)
+#      上記2つを忘れたときの最後の砦。
+#      ただし Python の __del__ は以下の場合に呼ばれないことがある:
+#        - 循環参照がある場合 (CPython の循環 GC は __del__ を持つ
+#          オブジェクトを即座に回収しない)
+#        - インタープリタ終了時
+#      そのため __del__ だけに頼るのは危険。
 # ================================================================
 class TrackdloState:
     def __init__(self, num_nodes: int):
         self._handle = _lib.tdlo_state_create(num_nodes)
+        if not self._handle:
+            raise RuntimeError("tdlo_state_create が NULL を返しました (メモリ不足の可能性)")
 
-    def __del__(self):
+    def close(self) -> None:
+        """C++ 側のメモリを明示的に解放する。二重解放は安全に無視される。"""
         if self._handle:
             _lib.tdlo_state_free(self._handle)
             self._handle = None
+
+    def __del__(self):
+        # close() を呼び忘れたときのフォールバック。
+        # with 文や明示的な close() を使っていれば _handle は既に None。
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # with ブロックを抜けるとき (例外の有無に関わらず) に呼ばれる
+        self.close()
+        return False  # 例外を握りつぶさない
 
     @property
     def Y(self) -> np.ndarray:

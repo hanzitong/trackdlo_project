@@ -47,7 +47,7 @@
     <arg name="wait_before_occlusion" value="0.0" if="$(eval arg('bag_file') == 4)" />
     <arg name="wait_before_occlusion" value="0.0" if="$(eval arg('bag_file') == 5)" />
 
-    <node name="evaluation" pkg="trackdlo" type="evaluation" output="screen">
+    <node name="evaluation" pkg="trackdlo_ros2" type="evaluation" output="screen">
         <param name="bag_file" value="$(arg bag_file)" />
         <param name="trial" value="$(arg trial)" />
         <param name="alg" value="$(arg alg)" />
@@ -64,7 +64,7 @@
     </node>
 
     <!-- start the simulate occlusion script -->
-    <node pkg="trackdlo" name="simulate_occlusion" type="simulate_occlusion_eval.py" output="screen" />
+    <node pkg="trackdlo_ros2" name="simulate_occlusion" type="simulate_occlusion_eval.py" output="screen" />
 
     <node pkg="rosbag" type="play" name="rosbag" args="-r $(arg bag_rate) $(arg bag_dir)"/>
 

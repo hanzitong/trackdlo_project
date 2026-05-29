@@ -5,8 +5,8 @@ ROS2ノード trackdlo_node を起動するlaunchファイル。
 RealSense カメラと合わせて使うことを想定している。
 
 使い方:
-    ros2 launch trackdlo trackdlo_node.launch.py
-    ros2 launch trackdlo trackdlo_node.launch.py hsv_lower:="90 90 30" hsv_upper:="130 255 255"
+    ros2 launch trackdlo_ros2 trackdlo_node.launch.py
+    ros2 launch trackdlo_ros2 trackdlo_node.launch.py hsv_lower:="90 90 30" hsv_upper:="130 255 255"
 """
 
 from launch import LaunchDescription
@@ -49,7 +49,7 @@ def generate_launch_description():
 
     # ---- ノード定義 ----
     trackdlo_node = Node(
-        package="trackdlo",
+        package="trackdlo_ros2",
         executable="trackdlo_node",
         name="trackdlo_node",
         output="screen",
