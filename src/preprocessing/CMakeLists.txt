@@ -20,6 +20,11 @@ target_link_libraries(preprocessing
     ${OpenCV_LIBS}
     ${PCL_LIBRARIES}
 )
+# preprocessing_cdll が SHARED ライブラリとして静的リンクするために -fPIC が必要
+# (pure_trackdlo と同じ理由)
+set_target_properties(preprocessing
+    PROPERTIES POSITION_INDEPENDENT_CODE ON
+)
 
 enable_testing()
 find_package(GTest REQUIRED)

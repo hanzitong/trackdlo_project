@@ -23,11 +23,12 @@ pipeline_demo.py
 
 ─── このデモのポイント ────────────────────────────────────────────────────
   このディレクトリに setup.sh でコピーした以下のファイルを直接読む:
-    ./libtrackdlo_c.so             ← C++ アルゴリズムの共有ライブラリ
+    ./libtrackdlo_c.so             ← trackdlo C++ アルゴリズムの共有ライブラリ
+    ./libpreprocessing_c.so        ← preprocessing C++ ライブラリの共有ライブラリ
     ./best_deeplabv3plus_cable.pth ← DeepLabV3+ 学習済み重み
 
-  環境変数 TRACKDLO_LIB_PATH に .so のパスをセットしてから trackdlo_cdll を
-  import することで、trackdlo_cdll.py 自体はコピーせずに使い回せる。
+  環境変数 TRACKDLO_LIB_PATH / PREPROCESSING_LIB_PATH に .so のパスをセットして
+  から各 _cdll モジュールを import することで、.py 自体はコピーせずに使い回せる。
 """
 
 import os
@@ -44,14 +45,15 @@ if not WEIGHTS.exists():
         f"{WEIGHTS} が見つかりません。先に bash setup.sh を実行してください。"
     )
 
-# TRACKDLO_LIB_PATH を設定してから trackdlo_cdll を import する。
-# trackdlo_cdll.py の _load_lib() は import 時に実行されるため、
-# 環境変数は必ず import より前にセットする必要がある。
-os.environ["TRACKDLO_LIB_PATH"] = str(HERE / "libtrackdlo_c.so")
+# *_LIB_PATH を設定してから各 _cdll を import する。
+# _load_lib() は import 時に実行されるため、環境変数は必ず import より前にセットする。
+os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "libtrackdlo_c.so")
+os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "libpreprocessing_c.so")
 
-# trackdlo_cdll.py は src/trackdlo_cdll/python/ にある
+# 各 _cdll の Python ラッパーは src/ 以下にある
 _SRC = HERE.parents[3] / "src"   # pipeline_demo/ から4つ上が trackdlo_project/src/
-sys.path.insert(0, str(_SRC / "trackdlo_cdll" / "python"))
+sys.path.insert(0, str(_SRC / "trackdlo_cdll"    / "python"))
+sys.path.insert(0, str(_SRC / "preprocessing_cdll" / "python"))
 
 import numpy as np
 import cv2
@@ -66,6 +68,7 @@ from trackdlo_cdll import (
     cpd_lle,
     sort_pts,
 )
+from preprocessing_cdll import images_to_pointcloud, compute_visible_nodes
 
 # ─── 設定 ────────────────────────────────────────────────────────────────────
 NUM_NODES = 5                                          # トラッキングするノード数
@@ -149,42 +152,6 @@ def infer_mask(bgr_frame: np.ndarray) -> np.ndarray:
     return (prob > 0.5).astype(np.uint8)
 
 
-def mask_depth_to_pointcloud(mask: np.ndarray, depth_mm: np.ndarray) -> np.ndarray:
-    """
-    バイナリマスク + 深度画像 → 3D 点群 (N×3, float64, 単位 m)
-
-    ピンホールカメラの逆投影式:
-      Z = depth_mm[v, u] / 1000.0        (mm → m 変換)
-      X = (u - cx) * Z / fx
-      Y = (v - cy) * Z / fy
-
-    np.where(mask > 0) でマスクが 1 のピクセルの (行, 列) = (v, u) を取得し、
-    上式で 3D 座標に変換する。
-    """
-    vs, us = np.where(mask > 0)
-    if len(us) == 0:
-        return np.empty((0, 3), dtype=np.float64)
-
-    z_mm  = depth_mm[vs, us].astype(np.float64)
-    valid = z_mm > 0                           # 深度が無効 (0) なピクセルを除外
-    vs, us, z_mm = vs[valid], us[valid], z_mm[valid]
-    if len(us) == 0:
-        return np.empty((0, 3), dtype=np.float64)
-
-    Z   = z_mm / 1000.0
-    pts = np.column_stack([
-        (us - CX) * Z / FX,    # X [m]
-        (vs - CY) * Z / FY,    # Y [m]
-        Z,                      # Z [m] (カメラからの距離)
-    ])
-
-    # 5mm ボクセルグリッドでダウンサンプリング
-    # 同じボクセルに入る点を 1 点に統合して点群を間引く
-    voxels = np.floor(pts / 0.005).astype(np.int32)
-    _, idx = np.unique(voxels, axis=0, return_index=True)
-    return pts[idx]
-
-
 def initialize_state(X: np.ndarray) -> TrackdloState:
     """
     初回フレーム: 点群 X から TrackdloState を構築して返す。
@@ -263,7 +230,6 @@ def print_nodes(frame_no: int, Y: np.ndarray) -> None:
 # =============================================================================
 # メインループ
 # =============================================================================
-all_idx  = list(range(NUM_NODES))
 state    = None    # None の間は初期化待ち
 frame_no = 0
 WIN      = "pipeline_demo  [Space: reinit  ESC: quit]"
@@ -287,8 +253,10 @@ try:
         # Step 2: DeepLabV3+ でバイナリマスクを生成
         mask = infer_mask(bgr)
 
-        # Step 3: バイナリマスク + 深度画像 → 3D 点群
-        X = mask_depth_to_pointcloud(mask, depth_mm)
+        # Step 3: バイナリマスク + 深度画像 → 3D 点群 (C++ の preprocessing を呼ぶ)
+        # bgr は uint8 (H,W,3)、depth_mm は uint16 (H,W)、mask は uint8 (H,W)
+        # leaf_size=0.005: 5mm VoxelGrid でダウンサンプリング
+        X = images_to_pointcloud(bgr, depth_mm, mask, FX, FY, CX, CY, leaf_size=0.005)
 
         # Step 4 & 5: 初期化またはトラッキング
         # 点群が少なすぎる場合は処理をスキップ (ノード数の 3 倍を下限とする)
@@ -301,7 +269,18 @@ try:
                 frame_no = 0
                 print("[INIT] done")
             else:
-                tracking_step(state, X, all_idx, all_idx, params)
+                # 可視ノードを計算してから tracking_step に渡す。
+                # 初回 (frame_no==0) は state.Y がまだ安定していないため全ノードを渡す。
+                if frame_no == 0:
+                    vn = vne = list(range(NUM_NODES))
+                else:
+                    img_rows, img_cols = bgr.shape[:2]
+                    vn, vne = compute_visible_nodes(
+                        state.Y, X, state.geodesic_coord,
+                        FX, FY, CX, CY,
+                        img_rows, img_cols,
+                    )
+                tracking_step(state, X, vn, vne, params)
                 frame_no += 1
 
             # Step 6: ノード座標を出力

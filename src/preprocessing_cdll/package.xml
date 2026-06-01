@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>preprocessing_cdll</name>
+  <version>0.1.0</version>
+  <description>C API and ctypes Python wrapper for preprocessing</description>
+  <maintainer email="placeholder@example.com">user</maintainer>
+  <license>MIT</license>
+  <depend>preprocessing</depend>
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

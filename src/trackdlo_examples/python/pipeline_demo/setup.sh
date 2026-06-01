@@ -7,6 +7,7 @@
 #
 # コピーするファイル:
 #   libtrackdlo_c.so               ← colcon build 後の build/ から
+#   libpreprocessing_c.so          ← colcon build 後の build/ から
 #   best_deeplabv3plus_cable.pth   ← src/bmask_gen/weights/ から
 #
 # 使い方:
@@ -38,6 +39,19 @@ fi
 
 cp "$SO_SRC" "$SCRIPT_DIR/libtrackdlo_c.so"
 echo "[OK] copied: libtrackdlo_c.so"
+
+# ─── libpreprocessing_c.so ───────────────────────────────────────────────────
+PREPROC_SO_SRC="$WS_ROOT/build/preprocessing_cdll/libpreprocessing_c.so"
+
+if [ ! -f "$PREPROC_SO_SRC" ]; then
+    echo "[ERROR] $PREPROC_SO_SRC が見つかりません。"
+    echo "  先に以下を実行してください:"
+    echo "    colcon build --packages-up-to preprocessing_cdll"
+    exit 1
+fi
+
+cp "$PREPROC_SO_SRC" "$SCRIPT_DIR/libpreprocessing_c.so"
+echo "[OK] copied: libpreprocessing_c.so"
 
 # ─── DeepLabV3+ 重みファイル ──────────────────────────────────────────────────
 WEIGHTS_SRC="$WS_ROOT/src/bmask_gen/weights/best_deeplabv3plus_cable.pth"
