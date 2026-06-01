@@ -14,56 +14,77 @@ add_compile_options(-O3)
 #   ↓ コンパイル & リンク
 #   libpreprocessing_c.so / preprocessing_c.dll  ← Python が ctypes.CDLL でロードする
 #
-# trackdlo_cdll と同じ構造。違いは以下:
-#   - pure_trackdlo の代わりに preprocessing をラップする
-#   - cv::Mat を受け取る関数は uint8_t* / uint16_t* で橋渡しする
-#   - 可変長出力 (点群) は呼び元が最大サイズのバッファを渡し、実際の要素数を int* で受け取る
-#
 # =============================================================================
-# ビルドターゲット切り替え
+# ビルドモード切り替え
 #
-#   OFF (デフォルト) : Ubuntu/Linux 向け → libpreprocessing_c.so (PCL 使用)
-#   ON               : Windows 向け     → preprocessing_c.dll   (PCL 不使用)
+#   DEFAULT (両フラグ OFF):
+#     Ubuntu 通常ビルド → libpreprocessing_c.so (PCL + OpenCV を動的リンク)
 #
-# ON にすると PREPROC_WINDOWS が定義され、preprocessing_c_api.h の PREPROC_API が
-# __declspec(dllexport) に展開される。
-# PCL は mingw64 向けの apt パッケージが存在しないため、
-# preprocessing 本体 (BUILD_FOR_WINDOWS=ON でビルド済み) に
-# std::unordered_map ベースのカスタム VoxelGrid が使われる。
+#   BUILD_STANDALONE=ON:
+#     持ち運び可能な Linux .so → libpreprocessing_c.so
+#     - PCL を除去 (カスタム VoxelGrid で代替)
+#     - OpenCV を静的リンク (.a) → PCL/OpenCV の .so が先方 PC になくても動作する
+#     - 前提: preprocessing を BUILD_STANDALONE=ON でビルド & インストール済みであること
 #
-# ─── Ubuntu ビルド (デフォルト) ───────────────────────────────────────────────
-#   colcon build  または
-#   mkdir -p build && cd build
-#   cmake .. -Dpreprocessing_DIR=../../install/preprocessing/lib/cmake/preprocessing
-#   make
+#   BUILD_FOR_WINDOWS=ON:
+#     Ubuntu から Windows 向けクロスコンパイル → preprocessing_c.dll
+#     - PCL を除去
+#     - PREPROC_WINDOWS 定義 → __declspec(dllexport) 有効化
 #
-# ─── Windows クロスコンパイル (Ubuntu から) ──────────────────────────────────
-#   前提:
-#     - sudo apt install mingw-w64
-#     - preprocessing を BUILD_FOR_WINDOWS=ON でビルド & install_win/ にインストール済み
-#       (build_win/preprocessing/ の make install)
-#     - OpenCV Windows バイナリ (DLL + .a) が install_win/ 以下にある
-#       例: vcpkg install opencv4[core]:x64-mingw-static
-#           または公式 OpenCV Windows リリースを解凍して install_win/ にコピー
+# ─── 通常 Ubuntu ビルド ───────────────────────────────────────────────────────
+#   colcon build
 #
-#   1. preprocessing_cdll を Windows 向けにビルド
-#      mkdir -p build_win/preprocessing_cdll && cd build_win/preprocessing_cdll
-#      cmake ../../src/preprocessing_cdll \
-#        -DBUILD_FOR_WINDOWS=ON \
-#        -DCMAKE_TOOLCHAIN_FILE=../../src/trackdlo_cdll/cmake/toolchain-mingw64.cmake \
-#        -DCMAKE_PREFIX_PATH=../../install_win
-#      make
-#      → preprocessing_c.dll が生成される
+# ─── スタンドアロン .so ビルド (持ち運び用) ─────────────────────────────────
+#   mkdir -p build_standalone/preprocessing && cd build_standalone/preprocessing
+#   cmake ../../src/preprocessing \
+#     -DBUILD_STANDALONE=ON \
+#     -DCMAKE_INSTALL_PREFIX=../../install_standalone
+#   make && make install && cd ../..
+#
+#   mkdir -p build_standalone/preprocessing_cdll && cd build_standalone/preprocessing_cdll
+#   cmake ../../src/preprocessing_cdll \
+#     -DBUILD_STANDALONE=ON \
+#     -DCMAKE_PREFIX_PATH=../../install_standalone
+#   make && cd ../..
+#   → build_standalone/preprocessing_cdll/libpreprocessing_c.so
+#
+# ─── Windows クロスコンパイル ────────────────────────────────────────────────
+#   docs/build_guide.md 参照
 # =============================================================================
-# option() は set() と違い -DBUILD_FOR_WINDOWS=ON のようにコマンドラインから上書きできる
-option(BUILD_FOR_WINDOWS "Build without PCL for Windows cross-compilation" OFF)
+
+option(BUILD_FOR_WINDOWS "Build for Windows cross-compilation (mingw64)" OFF)
+option(BUILD_STANDALONE  "Build self-contained .so: no PCL, static OpenCV" OFF)
 
 find_package(preprocessing REQUIRED)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(OpenCV REQUIRED)
 
-if(NOT BUILD_FOR_WINDOWS)
+if(BUILD_STANDALONE)
+    # スタンドアロンビルド: OpenCV を静的 .a でリンクする
+    # find_package(OpenCV) はインクルードパス取得のみに使い、
+    # ライブラリは .a ファイルを直接指定する。
+    # Ubuntu の libopencv-dev には -fPIC 付きの .a が含まれるため .so に静的リンクできる。
+    find_library(OPENCV_CORE_STATIC    NAMES libopencv_core.a    REQUIRED)
+    find_library(OPENCV_IMGPROC_STATIC NAMES libopencv_imgproc.a REQUIRED)
+    set(_OPENCV_LINK_LIBS ${OPENCV_CORE_STATIC} ${OPENCV_IMGPROC_STATIC})
+    message(STATUS "Standalone build: static OpenCV")
+    message(STATUS "  opencv_core:    ${OPENCV_CORE_STATIC}")
+    message(STATUS "  opencv_imgproc: ${OPENCV_IMGPROC_STATIC}")
+
+    # preprocessing の cmake ターゲットは INTERFACE_LINK_LIBRARIES に
+    # opencv_core;opencv_imgproc;... 等の .so ターゲット群を持つ (推移依存)。
+    # このままにすると静的 .a と動的 .so が二重リンクされてしまうため、
+    # INTERFACE_LINK_LIBRARIES を Eigen3 のみに上書きして .so の推移を遮断する。
+    set_target_properties(preprocessing PROPERTIES
+        INTERFACE_LINK_LIBRARIES "Eigen3::Eigen"
+    )
+elseif(BUILD_FOR_WINDOWS)
+    # Windows クロスコンパイル: find_package が返す .a (mingw向け) をそのまま使う
+    set(_OPENCV_LINK_LIBS ${OpenCV_LIBS})
+else()
+    # 通常 Ubuntu ビルド: PCL + 動的 OpenCV
     find_package(PCL 1.8 REQUIRED COMPONENTS common filters)
+    set(_OPENCV_LINK_LIBS ${OpenCV_LIBS})
 endif()
 
 add_library(preprocessing_c
@@ -72,6 +93,7 @@ add_library(preprocessing_c
 )
 
 if(BUILD_FOR_WINDOWS)
+    # Windows DLL のシンボルエクスポートに必要
     target_compile_definitions(preprocessing_c PRIVATE PREPROC_WINDOWS)
 endif()
 
@@ -80,17 +102,21 @@ target_include_directories(preprocessing_c PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
+if(BUILD_STANDALONE)
+    # INTERFACE_LINK_LIBRARIES を上書きしたことで OpenCV の cmake ターゲット経由の
+    # インクルードパス伝播が切れるため、OpenCV_INCLUDE_DIRS を直接追加する。
+    target_include_directories(preprocessing_c PRIVATE ${OpenCV_INCLUDE_DIRS})
+endif()
+
 # preprocessing は -fPIC 付きでビルド済みのため共有ライブラリへの静的リンクが可能
-# OpenCV は preprocessing が推移的に依存しているが、
-# 共有ライブラリのリンク時に明示的に指定しないと undefined symbol になる場合があるため追加する
 target_link_libraries(preprocessing_c
     PRIVATE
     preprocessing
     Eigen3::Eigen
-    ${OpenCV_LIBS}
+    ${_OPENCV_LINK_LIBS}
 )
 
-if(NOT BUILD_FOR_WINDOWS)
+if(NOT BUILD_STANDALONE AND NOT BUILD_FOR_WINDOWS)
     target_link_libraries(preprocessing_c PRIVATE ${PCL_LIBRARIES})
 endif()
 

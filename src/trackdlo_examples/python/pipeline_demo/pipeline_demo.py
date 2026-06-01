@@ -50,10 +50,14 @@ if not WEIGHTS.exists():
 os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "libtrackdlo_c.so")
 os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "libpreprocessing_c.so")
 
-# 各 _cdll の Python ラッパーは src/ 以下にある
+# Python ラッパーの検索順:
+#   1. このスクリプトと同じディレクトリ (setup.sh でコピーされた trackdlo_cdll.py 等)
+#   2. ワークスペース内の src/ (開発時にワークスペース上で直接実行する場合)
+# setup.sh 実行後は 1 が優先されるため、持ち運び先に src/ がなくても動作する。
+sys.path.insert(0, str(HERE))
 _SRC = HERE.parents[3] / "src"   # pipeline_demo/ から4つ上が trackdlo_project/src/
-sys.path.insert(0, str(_SRC / "trackdlo_cdll"    / "python"))
-sys.path.insert(0, str(_SRC / "preprocessing_cdll" / "python"))
+sys.path.append(str(_SRC / "trackdlo_cdll"    / "python"))
+sys.path.append(str(_SRC / "preprocessing_cdll" / "python"))
 
 import numpy as np
 import cv2

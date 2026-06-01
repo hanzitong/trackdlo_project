@@ -2,3 +2,5 @@
 libtrackdlo_c.so
 libpreprocessing_c.so
 *.pth
+trackdlo_cdll.py
+preprocessing_cdll.py

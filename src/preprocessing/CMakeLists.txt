@@ -51,10 +51,22 @@ add_compile_options(-O3)
 # option() は set() と違い -DBUILD_FOR_WINDOWS=ON のようにコマンドラインから上書きできる
 option(BUILD_FOR_WINDOWS "Build without PCL for Windows cross-compilation" OFF)
 
+# BUILD_STANDALONE: PCL なし + OpenCV はヘッダのみ依存。
+# libpreprocessing_c.so を外部 PCL/OpenCV に依存させず持ち運び可能にしたい場合に使う。
+# preprocessing_cdll/CMakeLists.txt 側で静的 OpenCV .a をリンクする。
+# BUILD_FOR_WINDOWS と同じく PREPROCESSING_WINDOWS マクロを定義してカスタム VoxelGrid を有効にする。
+option(BUILD_STANDALONE "Build without PCL; for self-contained .so on Linux" OFF)
+
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(OpenCV REQUIRED)
 
-if(NOT BUILD_FOR_WINDOWS)
+# PCL が不要なビルド: BUILD_FOR_WINDOWS=ON または BUILD_STANDALONE=ON のとき
+set(_NO_PCL OFF)
+if(BUILD_FOR_WINDOWS OR BUILD_STANDALONE)
+    set(_NO_PCL ON)
+endif()
+
+if(NOT _NO_PCL)
     find_package(PCL 1.8 REQUIRED COMPONENTS common filters)
 endif()
 
@@ -62,7 +74,9 @@ add_library(preprocessing
     src/preprocessing.cpp
 )
 
-if(BUILD_FOR_WINDOWS)
+if(_NO_PCL)
+    # PREPROCESSING_WINDOWS マクロで PCL の代わりにカスタム VoxelGrid を有効にする。
+    # 名前は "WINDOWS" だが Windows API は使わないため Linux でも機能する。
     target_compile_definitions(preprocessing PUBLIC PREPROCESSING_WINDOWS)
 endif()
 
@@ -76,7 +90,7 @@ target_link_libraries(preprocessing
     ${OpenCV_LIBS}
 )
 
-if(NOT BUILD_FOR_WINDOWS)
+if(NOT _NO_PCL)
     target_link_libraries(preprocessing ${PCL_LIBRARIES})
 endif()
 
@@ -85,8 +99,8 @@ set_target_properties(preprocessing
     PROPERTIES POSITION_INDEPENDENT_CODE ON
 )
 
-# テストは Ubuntu 環境のみ (mingw64 クロスコンパイル時はスキップ)
-if(NOT BUILD_FOR_WINDOWS)
+# テストは PCL ありの Ubuntu 環境のみ
+if(NOT _NO_PCL)
     enable_testing()
     find_package(GTest REQUIRED)
 

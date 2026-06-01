@@ -3,8 +3,10 @@ __pycache__/
 .vscode/
 build/
 build_win/
+build_standalone/
 install/
 install_win/
+install_standalone/
 log/
 # data/output/*.png
 data/output/*/*.json
