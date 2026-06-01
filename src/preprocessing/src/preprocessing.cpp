@@ -279,27 +279,35 @@ void compute_visible_nodes(const Eigen::MatrixXd& Y,
         int row_2 = static_cast<int>(image_coords(idx+1, 1) / image_coords(idx+1, 2));
 
         // ノードidxが可視か判定: 投影位置が未使用 かつ 点群に近い
-        if (projected_edges.at<uchar>(row_1, col_1) == 0) {
-            if (shortest_node_pt_dists[idx] <= visibility_threshold) {
-                if (std::find(visible_nodes.begin(), visible_nodes.end(), idx) == visible_nodes.end()) {
-                    visible_nodes.push_back(idx);
+        // 投影座標が画像外のノードはスキップする (at<uchar> はリリースビルドでは範囲外チェックしない)
+        if (row_1 >= 0 && row_1 < img_rows && col_1 >= 0 && col_1 < img_cols) {
+            if (projected_edges.at<uchar>(row_1, col_1) == 0) {
+                if (shortest_node_pt_dists[idx] <= visibility_threshold) {
+                    if (std::find(visible_nodes.begin(), visible_nodes.end(), idx) == visible_nodes.end()) {
+                        visible_nodes.push_back(idx);
+                    }
                 }
             }
         }
 
         // ノードidx+1が可視か判定
-        if (projected_edges.at<uchar>(row_2, col_2) == 0) {
-            if (shortest_node_pt_dists[idx+1] <= visibility_threshold) {
-                if (std::find(visible_nodes.begin(), visible_nodes.end(), idx+1) == visible_nodes.end()) {
-                    visible_nodes.push_back(idx+1);
+        if (row_2 >= 0 && row_2 < img_rows && col_2 >= 0 && col_2 < img_cols) {
+            if (projected_edges.at<uchar>(row_2, col_2) == 0) {
+                if (shortest_node_pt_dists[idx+1] <= visibility_threshold) {
+                    if (std::find(visible_nodes.begin(), visible_nodes.end(), idx+1) == visible_nodes.end()) {
+                        visible_nodes.push_back(idx+1);
+                    }
                 }
             }
         }
 
         // このエッジを投影マスクに描画 → 後続の遠いエッジのオクルージョン判定に使う
-        cv::line(projected_edges,
-                 cv::Point(col_1, row_1), cv::Point(col_2, row_2),
-                 cv::Scalar(255, 255, 255), dlo_pixel_width);
+        // cv::line は画像外座標を受け取ると内部でクリッピングするが、
+        // 念のため cv::clipLine で明示的にクリップしてから描画する
+        cv::Point p1(col_1, row_1), p2(col_2, row_2);
+        if (cv::clipLine(cv::Rect(0, 0, img_cols, img_rows), p1, p2)) {
+            cv::line(projected_edges, p1, p2, cv::Scalar(255, 255, 255), dlo_pixel_width);
+        }
     }
 
     // 元のノード順序 (連続性) を保つためにソートする

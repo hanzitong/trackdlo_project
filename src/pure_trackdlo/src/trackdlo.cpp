@@ -521,10 +521,12 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
     Eigen::MatrixXd L = Eigen::MatrixXd::Zero(M, M);
     for (int i = 0; i < M; i++) {
         // i の k/2=3 近傍インデックスを求める (鎖端では片側のみ)
+        // [注意] M <= 6 のとき i + half_k が M を超えうる。
+        // std::min で M-1 にクランプして out-of-bounds を防ぐ。
         const int half_k = 3;
         std::vector<int> indices;
         if (i - half_k < 0) {
-            for (int j = 0; j <= i + half_k; j++) {
+            for (int j = 0; j <= std::min(i + half_k, M - 1); j++) {
                 if (j != i) indices.push_back(j);
             }
         }
@@ -631,9 +633,11 @@ bool cpd_lle(const Eigen::MatrixXd& X_orig,
             int max_p_node = max_p_nodes[i];
 
             int potential_2nd_1 = max_p_node - 1;
-            if (potential_2nd_1 == -1) potential_2nd_1 = 2;
+            // M < 3 のとき "2" が範囲外になるため std::min で上限を M-1 にクランプする
+            if (potential_2nd_1 < 0) potential_2nd_1 = std::min(2, M - 1);
             int potential_2nd_2 = max_p_node + 1;
-            if (potential_2nd_2 == M) potential_2nd_2 = M - 3;
+            // M < 4 のとき M-3 が負になるため std::max で 0 にクランプする
+            if (potential_2nd_2 >= M) potential_2nd_2 = std::max(M - 3, 0);
 
             int next_max_p_node = (pt2pt_dis(out_Y.row(potential_2nd_1), X.row(i)) < pt2pt_dis(out_Y.row(potential_2nd_2), X.row(i)))
                                   ? potential_2nd_1 : potential_2nd_2;
@@ -828,13 +832,21 @@ TrackdloState tracking_step(TrackdloState state,
     }
 
     // 前処理: guide_nodes を簡易CPD で粗く合わせる (sigma2 は一時変数で更新)
-    double sigma2_pre_proc = state.sigma2;
-    cpd_lle(X, state.guide_nodes, sigma2_pre_proc,  // out_Y=guide_nodes, out_sigma2=sigma2_pre_proc (in-place update)
-            params.beta_pre_proc, params.lambda_pre_proc, params.lle_weight,
-            params.mu, params.max_iter, params.tol, true);
+    // visible_nodes_extended が空のときは guide_nodes も 0×3 になるのでスキップする
+    if (state.guide_nodes.rows() > 0) {
+        double sigma2_pre_proc = state.sigma2;
+        cpd_lle(X, state.guide_nodes, sigma2_pre_proc,  // out_Y=guide_nodes, out_sigma2=sigma2_pre_proc (in-place update)
+                params.beta_pre_proc, params.lambda_pre_proc, params.lle_weight,
+                params.mu, params.max_iter, params.tol, true);
+    }
 
     // オクルージョン状態を判定して correspondence_priors を構築する
-    if (static_cast<int>(visible_nodes_extended.size()) == state.Y.rows()) {
+    // visible_nodes_extended が空の場合は [0] アクセスが未定義動作になるため先に弾く
+    if (visible_nodes_extended.empty()) {
+        // 可視ノード 0 個: correspondence_priors なし。cpd_lle が自力で点群に合わせる。
+        state.correspondence_priors = {};
+    }
+    else if (static_cast<int>(visible_nodes_extended.size()) == state.Y.rows()) {
         if (visible_nodes.size() == visible_nodes_extended.size()) {
             std::cout << "All nodes visible" << std::endl;
         }
