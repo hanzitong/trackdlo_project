@@ -25,26 +25,17 @@ pipeline_demo.py
   このディレクトリに setup.sh でコピーした以下のファイルを直接読む:
     ./libtrackdlo_c.so             ← C++ アルゴリズムの共有ライブラリ
     ./best_deeplabv3plus_cable.pth ← DeepLabV3+ 学習済み重み
-  trackdlo_wrapper.py が .so を HERE / "libtrackdlo_c.so" でロードする。
+
+  環境変数 TRACKDLO_LIB_PATH に .so のパスをセットしてから trackdlo_cdll を
+  import することで、trackdlo_cdll.py 自体はコピーせずに使い回せる。
 """
 
+import os
+import sys
 from pathlib import Path
-import numpy as np
-import cv2
-import torch
-import segmentation_models_pytorch as smp
-import pyrealsense2 as rs
 
-# trackdlo_wrapper.py はこのファイルと同じディレクトリにある
-from trackdlo_wrapper import (
-    TrackdloState,
-    default_params,
-    tracking_step,
-    cpd_lle,
-    sort_pts,
-)
-
-# ─── パス ────────────────────────────────────────────────────────────────────
+# ─── パス (import より先に確定させる) ────────────────────────────────────────
+# HERE はこのスクリプトのあるディレクトリ = pipeline_demo/
 HERE    = Path(__file__).resolve().parent
 WEIGHTS = HERE / "best_deeplabv3plus_cable.pth"
 
@@ -53,8 +44,31 @@ if not WEIGHTS.exists():
         f"{WEIGHTS} が見つかりません。先に bash setup.sh を実行してください。"
     )
 
+# TRACKDLO_LIB_PATH を設定してから trackdlo_cdll を import する。
+# trackdlo_cdll.py の _load_lib() は import 時に実行されるため、
+# 環境変数は必ず import より前にセットする必要がある。
+os.environ["TRACKDLO_LIB_PATH"] = str(HERE / "libtrackdlo_c.so")
+
+# trackdlo_cdll.py は src/trackdlo_cdll/python/ にある
+_SRC = HERE.parents[3] / "src"   # pipeline_demo/ から4つ上が trackdlo_project/src/
+sys.path.insert(0, str(_SRC / "trackdlo_cdll" / "python"))
+
+import numpy as np
+import cv2
+import torch
+import segmentation_models_pytorch as smp
+import pyrealsense2 as rs
+
+from trackdlo_cdll import (
+    TrackdloState,
+    default_params,
+    tracking_step,
+    cpd_lle,
+    sort_pts,
+)
+
 # ─── 設定 ────────────────────────────────────────────────────────────────────
-NUM_NODES = 15                                          # トラッキングするノード数
+NUM_NODES = 5                                          # トラッキングするノード数
 DEVICE    = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device = {DEVICE}")
 

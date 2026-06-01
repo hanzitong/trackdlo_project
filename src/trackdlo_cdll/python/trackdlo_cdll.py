@@ -11,21 +11,40 @@ pybind11 と異なり Python 側にコンパイルステップがない (.py フ
 [前提]
     colcon build --packages-up-to trackdlo_cdll を実行して
     libtrackdlo_c.so を生成しておくこと。
+
+[.so のパスを上書きしたい場合]
+    import os
+    os.environ["TRACKDLO_LIB_PATH"] = "/path/to/libtrackdlo_c.so"
+    import trackdlo_cdll   # ← 環境変数をセットしてから import する
+
+    pipeline_demo のように .so をスクリプトと同じディレクトリに置く場合に使う。
+    環境変数は import より前にセットする必要がある (_load_lib は import 時に実行されるため)。
 """
 
 import ctypes
 import numpy as np
+import os
 from pathlib import Path
 
 
 # ================================================================
 # ライブラリのロード
 #
-# ctypes.CDLL: 共有ライブラリ (.so / .dll) を読み込む。
-# ライブラリは colcon の build または install ディレクトリに生成される。
+# 優先順位:
+#   1. 環境変数 TRACKDLO_LIB_PATH が指すパス (明示的な上書き)
+#   2. colcon build ディレクトリ
+#   3. colcon install ディレクトリ
 # ================================================================
 
 def _load_lib() -> ctypes.CDLL:
+    # 環境変数による上書き (pipeline_demo など .so を別の場所に置く場合に使う)
+    env_path = os.environ.get("TRACKDLO_LIB_PATH")
+    if env_path:
+        p = Path(env_path)
+        if not p.exists():
+            raise FileNotFoundError(f"TRACKDLO_LIB_PATH が指すファイルが見つかりません: {p}")
+        return ctypes.CDLL(str(p))
+
     here    = Path(__file__).resolve()
     ws_root = here.parents[3]  # src/trackdlo_cdll/python/ から3つ上がワークスペースルート
     candidates = [
