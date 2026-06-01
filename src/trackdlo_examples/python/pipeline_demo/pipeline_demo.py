@@ -71,7 +71,7 @@ from trackdlo_cdll import (
 from preprocessing_cdll import images_to_pointcloud, compute_visible_nodes
 
 # ─── 設定 ────────────────────────────────────────────────────────────────────
-NUM_NODES = 5                                          # トラッキングするノード数
+NUM_NODES = 15                                          # トラッキングするノード数
 DEVICE    = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"device = {DEVICE}")
 

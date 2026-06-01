@@ -1,9 +1,69 @@
 #include "../include/preprocessing.h"
 
+// PCL は Ubuntu/Linux 専用。Windows ビルドはカスタム VoxelGrid で代替する。
+#ifndef PREPROCESSING_WINDOWS
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/voxel_grid.h>
+#endif
+
 #include <map>
+
+// =============================================================================
+// Windows 用カスタム VoxelGrid
+//
+// PCL の VoxelGrid と同じアルゴリズム (ボクセルごとに重心を取る) を
+// std::unordered_map で実装したもの。
+// PCL の apt パッケージが mingw64 向けに存在しないため、
+// PREPROCESSING_WINDOWS 定義時にこちらを使う。
+// =============================================================================
+#ifdef PREPROCESSING_WINDOWS
+#include <unordered_map>
+#include <cmath>
+
+namespace {
+
+struct VoxelKey {
+    int kx, ky, kz;
+    bool operator==(const VoxelKey& o) const {
+        return kx == o.kx && ky == o.ky && kz == o.kz;
+    }
+};
+
+// unordered_map のキーにするためのハッシュ関数
+// 3 つの int を XOR + 黄金比マジックナンバーで混ぜる
+struct VoxelKeyHash {
+    std::size_t operator()(const VoxelKey& k) const {
+        std::size_t h = std::hash<int>{}(k.kx);
+        h ^= std::hash<int>{}(k.ky) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(k.kz) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+// ボクセルグリッドダウンサンプリング
+// 各ボクセル内の点の重心を代表点として返す
+Eigen::MatrixXd voxel_grid_filter(const Eigen::MatrixXd& pts, double leaf_size) {
+    std::unordered_map<VoxelKey, std::pair<Eigen::RowVector3d, int>, VoxelKeyHash> voxels;
+    for (int i = 0; i < pts.rows(); i++) {
+        VoxelKey key {
+            static_cast<int>(std::floor(pts(i, 0) / leaf_size)),
+            static_cast<int>(std::floor(pts(i, 1) / leaf_size)),
+            static_cast<int>(std::floor(pts(i, 2) / leaf_size))
+        };
+        auto& cell = voxels[key];
+        cell.first  += pts.row(i);
+        cell.second += 1;
+    }
+    Eigen::MatrixXd result(static_cast<int>(voxels.size()), 3);
+    int row = 0;
+    for (auto& entry : voxels)
+        result.row(row++) = entry.second.first / entry.second.second;
+    return result;
+}
+
+} // anonymous namespace
+#endif
 
 namespace preprocessing {
 
@@ -108,6 +168,32 @@ Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
     //   X = (u - cx) * Z / fx
     //   Y = (v - cy) * Z / fy
     //   Z = depth_mm / 1000.0
+
+#ifdef PREPROCESSING_WINDOWS
+    // ── Windows モード: PCL 不使用 ──────────────────────────────────────────
+    // Eigen::MatrixXd に直接点を格納し、カスタム voxel_grid_filter を使う。
+    // 最大点数は mask のサイズ (rows × cols) なので最初に大きめに確保し、
+    // conservativeResize で実際の点数に縮小する。
+    Eigen::MatrixXd pts(mask.rows * mask.cols, 3);
+    int n = 0;
+    for (int i = 0; i < mask.rows; i++) {
+        for (int j = 0; j < mask.cols; j++) {
+            if (mask.at<uchar>(i, j) == 0) continue;
+            double pc_z = depth.at<uint16_t>(i, j) / 1000.0;
+            if (pc_z <= 0.0) continue;
+            pts(n, 0) = (j - cx) * pc_z / fx;
+            pts(n, 1) = (i - cy) * pc_z / fy;
+            pts(n, 2) = pc_z;
+            n++;
+        }
+    }
+    if (n == 0) return Eigen::MatrixXd(0, 3);
+    pts.conservativeResize(n, 3);
+    if (leaf_size > 0.0) return voxel_grid_filter(pts, leaf_size);
+    return pts;
+
+#else
+    // ── Linux モード: PCL VoxelGrid を使う ───────────────────────────────────
     pcl::PointCloud<pcl::PointXYZ> cloud;
     for (int i = 0; i < mask.rows; i++) {
         for (int j = 0; j < mask.cols; j++) {
@@ -146,6 +232,7 @@ Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
     //   transpose(): (3×N) → (N×3)
     //   cast<double>(): float → double
     return downsampled.getMatrixXfMap().topRows(3).transpose().cast<double>();
+#endif
 }
 
 

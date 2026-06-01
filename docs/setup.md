@@ -108,9 +108,6 @@ ESC キーで終了。重みファイルは `src/bmask_gen/weights/best_deeplabv
 
 ## よくある問題
 
-**`pybind11 not found` でビルド失敗する**
-→ `uv sync` を実行してから `source .venv/bin/activate` を忘れずに。
-
 **`.so` が `cpython-310` のまま**
 → `rm -rf build/trackdlo_python` でキャッシュを削除してから再ビルドする。
 
