@@ -2,7 +2,8 @@
 name = "trackdlo-workspace"
 version = "0.1.0"
 description = "Python environment for trackdlo_python bindings and bmask_gen DeepLab"
-requires-python = ">=3.11"
+# requires-python = ">=3.11"
+requires-python = "==3.10.11"
 dependencies = [
     # trackdlo_python (pybind11 ビルド用)
     "pybind11>=3.0",
@@ -29,3 +30,11 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu130" }]
 torchvision = [{ index = "pytorch-cu130" }]
+
+[tool.uv]
+cache-dir = "src/trackdlo_examples/.uv-cache"
+
+[tool.uv.workspace]
+members = [
+    "src/trackdlo_examples",
+]

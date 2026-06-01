@@ -1,5 +1,6 @@
 __pycache__/
 .venv/
+src/trackdlo_examples/.uv-cache/
 .vscode/
 build/
 build_win/
