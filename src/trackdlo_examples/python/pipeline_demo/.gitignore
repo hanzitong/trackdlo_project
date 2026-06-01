@@ -1,0 +1,3 @@
+# setup.sh でコピーされる生成ファイル。git 管理対象外。
+libtrackdlo_c.so
+*.pth
