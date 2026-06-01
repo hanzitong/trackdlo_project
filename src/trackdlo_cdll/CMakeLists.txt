@@ -59,7 +59,7 @@ add_compile_options(-O3)
 #   Windows の DLL ではシンボルに __declspec(dllexport) を付けないと
 #   ctypes が関数を見つけられない。TRACKDLO_API はこの差を吸収するマクロ。
 # =============================================================================
-set(BUILD_FOR_WINDOWS OFF)
+option(BUILD_FOR_WINDOWS "Build for Windows cross-compilation (mingw64)" OFF)
 
 find_package(pure_trackdlo REQUIRED)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)

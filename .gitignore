@@ -1,6 +1,10 @@
 __pycache__/
 .venv/
 src/trackdlo_examples/.uv-cache/
+src/trackdlo_examples/windows_wheels/
+src/trackdlo_examples/python/pipeline_demo/*.so
+src/trackdlo_examples/python/pipeline_demo/*.dll
+src/trackdlo_examples/python/pipeline_demo/*.pth
 .vscode/
 build/
 build_win/

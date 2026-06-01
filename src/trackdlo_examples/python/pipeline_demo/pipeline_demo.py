@@ -33,6 +33,7 @@ pipeline_demo.py
 
 import os
 import sys
+import platform
 from pathlib import Path
 
 # ─── パス (import より先に確定させる) ────────────────────────────────────────
@@ -47,8 +48,12 @@ if not WEIGHTS.exists():
 
 # *_LIB_PATH を設定してから各 _cdll を import する。
 # _load_lib() は import 時に実行されるため、環境変数は必ず import より前にセットする。
-os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "libtrackdlo_c.so")
-os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "libpreprocessing_c.so")
+# OS に応じて拡張子を切り替える: Linux → .so / Windows → .dll
+# os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "libtrackdlo_c.so")       # Linux 固定 (旧)
+# os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "libpreprocessing_c.so")  # Linux 固定 (旧)
+_LIB_EXT = ".dll" if platform.system() == "Windows" else ".so"
+os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / f"libtrackdlo_c{_LIB_EXT}")
+os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / f"libpreprocessing_c{_LIB_EXT}")
 
 # Python ラッパーの検索順:
 #   1. このスクリプトと同じディレクトリ (setup.sh でコピーされた trackdlo_cdll.py 等)
