@@ -7,7 +7,11 @@ requires-python = "==3.10.11"
 dependencies = [
     "numpy>=2.2.6",
     "opencv-python>=4.13.0.92",
+    "pyrealsense2>=2.57.7",
     "segmentation-models-pytorch>=0.5.0",
     "torch>=2.12.0",
     "torchvision>=0.27.0",
 ]
+
+[tool.uv]
+cache-dir = ".uv-cache"
