@@ -183,7 +183,17 @@ def initialize_state(X: np.ndarray) -> TrackdloState:
     )
     print(f"  [cpd_lle] converged={converged}  sigma2={sigma2:.6f}")
 
+    if not np.all(np.isfinite(Y_fit)):
+        print("  [cpd_lle] NaN/Inf detected, skipping initialization")
+        state.close()
+        return None
+
     Y_sorted = sort_pts(Y_fit)
+
+    if not np.all(np.isfinite(Y_sorted)):
+        print("  [sort_pts] NaN/Inf detected, skipping initialization")
+        state.close()
+        return None
 
     state.Y      = Y_sorted
     state.sigma2 = sigma2
@@ -274,9 +284,12 @@ try:
 
             if state is None:
                 print("[INIT] initializing trackdlo...")
-                state    = initialize_state(X)
-                frame_no = 0
-                print("[INIT] done")
+                state = initialize_state(X)
+                if state is None:
+                    print("[INIT] failed, retrying next frame")
+                else:
+                    frame_no = 0
+                    print("[INIT] done")
             else:
                 # 可視ノードを計算してから tracking_step に渡す。
                 # 初回 (frame_no==0) は state.Y がまだ安定していないため全ノードを渡す。
@@ -292,10 +305,17 @@ try:
                 tracking_step(state, X, vn, vne, params)
                 frame_no += 1
 
+                # tracking_step 後に NaN が混入していたら自動リセット
+                if not np.all(np.isfinite(state.Y)):
+                    print("[WARN] NaN detected in state.Y after tracking_step, resetting")
+                    state.close()
+                    state = None
+
             # Step 6: ノード座標を出力
             # state.Y は呼ぶたびに C++ からコピーされるので、変数に受けておく
-            Y_now = state.Y
-            print_nodes(frame_no, Y_now)
+            if state is not None:
+                Y_now = state.Y
+                print_nodes(frame_no, Y_now)
 
         # ─── 可視化 ──────────────────────────────────────────────────────────
         if state is not None:
