@@ -216,7 +216,7 @@ def draw_overlay(bgr: np.ndarray, mask: np.ndarray, Y: np.ndarray) -> np.ndarray
 
     prev_px = None
     for x3, y3, z3 in Y:
-        if z3 <= 0:
+        if not (np.isfinite(x3) and np.isfinite(y3) and np.isfinite(z3) and z3 > 0):
             continue
         # 3D → 2D 投影 (ピンホールカメラモデル)
         px = int(x3 * FX / z3 + CX)
