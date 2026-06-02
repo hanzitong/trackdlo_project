@@ -1,20 +1,16 @@
 [project]
 name = "trackdlo-workspace"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python environment for trackdlo_python bindings and bmask_gen DeepLab"
-# requires-python = ">=3.11"
 requires-python = "==3.10.11"
 dependencies = [
-    # trackdlo_python (pybind11 ビルド用)
-    "pybind11>=3.0",
-    "numpy",
-    # bmask_gen (DeepLabV3+ セグメンテーション)
+    "numpy==2.2.6",
     "labelme==5.3.0",
-    "opencv-python>=4.13.0.92",
-    "pillow>=12.2.0",
-    "segmentation-models-pytorch>=0.5.0",
-    "torch>=2.11.0",
-    "torchvision>=0.26.0",
+    "opencv-python==4.13.0.92",
+    "pillow == 12.2.0",
+    "segmentation-models-pytorch==0.5.0",
+    "torch==2.12.0",
+    "torchvision==0.27.0",
     # RealSense Python バインディング (librealsense2 本体は別途 apt でインストール済み)
     "pyrealsense2",
 ]
