@@ -33,6 +33,10 @@ torchvision = [{ index = "pytorch-cu130" }]
 
 [tool.uv]
 cache-dir = "src/trackdlo_examples/.uv-cache"
+environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'win32'",
+]
 
 [tool.uv.workspace]
 members = [
