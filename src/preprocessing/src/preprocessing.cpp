@@ -179,6 +179,11 @@ Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
     for (int i = 0; i < mask.rows; i++) {
         for (int j = 0; j < mask.cols; j++) {
             if (mask.at<uchar>(i, j) == 0) continue;
+            // TODO(根本修正): ここでは depth が uint16 mm 単位 (1mm/unit) であることを前提に
+            // /1000.0 で m 変換している。RealSense D405 は depth_scale = 0.0001 m/unit
+            // (0.1mm/unit) を使うため、本来は /10000.0 にするか、depth_scale を引数として
+            // 受け取るよう API を変更すべき。現状は呼び出し側 (Python) で raw 値を mm 換算して
+            // から渡す応急処置で対応している。
             double pc_z = depth.at<uint16_t>(i, j) / 1000.0;
             if (pc_z <= 0.0) continue;
             pts(n, 0) = (j - cx) * pc_z / fx;
@@ -199,6 +204,7 @@ Eigen::MatrixXd images_to_pointcloud(const cv::Mat& rgb_bgr,
         for (int j = 0; j < mask.cols; j++) {
             if (mask.at<uchar>(i, j) == 0) continue;
 
+            // TODO(根本修正): Windows モードも同様。上の Windows ブロックのコメントを参照。
             double pc_z = depth.at<uint16_t>(i, j) / 1000.0;
             if (pc_z <= 0.0) continue;  // 深度が無効な画素をスキップ
 

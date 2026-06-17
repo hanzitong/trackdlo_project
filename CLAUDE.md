@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # 私の好み
 - とにかくシンプルな構造で書くこと。過度な構造化は不要です。
+- コード内のコメント・docstring は日本語で書いてよい。ただし、CLI 画面に表示される文字列 (`print`、`raise`、例外メッセージ等) は**必ず英語**にすること。
+- コメント・標準出力・ドキュメントのいずれにも矢印記号 (`→`, `←`, `↑`, `↓`, `->`, `<-` 等) を**一切使わないこと**。
 - アルゴリズムのコードはC++で書くこと。
 - テストはGoogle Testで書くこと。
 - ビルド用のCMakeLists.txtは書くこと。
@@ -139,6 +141,94 @@ trackdlo_project/                ← ROS2ワークスペース兼リポジトリ
 │
 └── trackdlo_class_vs_functions.md  # ← docs/architecture/ に移動すべき残留ファイル
 ```
+
+---
+
+# Python 環境 (uv)
+
+ワークスペースルート (`trackdlo_project/`) が uv ワークスペースのルート。
+メンバーパッケージは `src/trackdlo_examples/`。
+
+```bash
+# 初回セットアップ (Python 3.10.11 + 全依存を .venv/ に構築)
+uv sync
+
+# .venv を有効化して実行
+source .venv/bin/activate
+python src/bmask_gen/scripts/train.py
+
+# または有効化なしで直接実行
+uv run python src/bmask_gen/scripts/train.py
+```
+
+`cache-dir = "src/trackdlo_examples/.uv-cache"` により、キャッシュはリポジトリ内に置かれる (git 管理外)。
+GPU 版 torch は PyPI ではなく `https://download.pytorch.org/whl/cu130` から取得 (`pyproject.toml` の `[[tool.uv.index]]` 参照)。
+
+---
+
+# src/bmask_gen/ — ケーブルセグメンテーション (DeepLabV3+)
+
+trackdlo のカラー閾値 (`color_threshold()`) の代替として、学習ベースのバイナリセグメンテーションを行うパッケージ。
+
+## ディレクトリ構成
+
+```
+src/bmask_gen/
+├── scripts/          ← 既存データ (data/) を使う学習・推論スクリプト
+│   ├── train_deeplabv3plus_binary.py
+│   ├── infer_live_cpu.py / infer_live_gpu.py
+│   ├── img_capture.py / view_cam.py
+│   └── practice/
+├── scripts_aoyama/   ← data_aoyama/ を使う学習・推論スクリプト (新規)
+│   ├── prepare_dataset.py   ← JSON→マスク変換 + train/val 分割
+│   ├── train.py
+│   ├── infer_live_cpu.py
+│   └── infer_live_gpu.py
+├── data/             ← 小規模テストデータ (6枚, train/val 分割済み)
+├── data_aoyama/      ← 本番データ (103枚 JPG + 98枚 LabelMe JSON)
+│   └── raw/
+│       ├── raw_images/      ← 1.jpg ～ 102.jpg (640×480)
+│       └── annotated_json/  ← 1.json ～ 98.json (LabelMe polygon形式)
+├── weights/          ← 学習済み重み (.pth)
+├── tools/            ← データ前処理ユーティリティ
+└── docs/annotation_workflow.md
+```
+
+## data_aoyama のアノテーション形式
+
+LabelMe polygon JSON。ラベルは `"cable"` 1種類のみ。
+
+```json
+{
+  "shapes": [
+    { "label": "cable", "points": [[x1,y1], [x2,y2], ...], "shape_type": "polygon" }
+  ],
+  "imageHeight": 480, "imageWidth": 640
+}
+```
+
+`{n}.json` と `{n}.jpg` は番号で対応 (98 JSON / 103 JPG → 5枚はアノテーションなし)。
+
+## データ前処理ワークフロー (scripts_aoyama/)
+
+```
+raw_images/{n}.jpg + annotated_json/{n}.json
+    │
+    ▼ prepare_dataset.py   (PIL ImageDraw でポリゴン → バイナリマスク)
+data_aoyama/dataset/
+    ├── images/train|val/  ← JPG コピー
+    └── masks/train|val/   ← PNG バイナリマスク (0=背景, 1=ケーブル)
+    │
+    ▼ train.py
+weights_aoyama/best_deeplabv3plus_cable.pth
+```
+
+## 学習スクリプトの共通構造
+
+`CableDataset(Dataset)` → `DataLoader` → `smp.DeepLabV3Plus(encoder="resnet34", classes=1, activation=None)` → `BCEWithLogitsLoss` → `Adam(lr=1e-4)`
+
+- モデル出力は raw logit (sigmoid なし)。推論時は `torch.sigmoid()` を別途適用。
+- 重みは `best_*.pth` (val IoU 最良) と `last_*.pth` (最終エポック) の2本保存。
 
 ## TrackDLOアルゴリズムの処理フロー
 
