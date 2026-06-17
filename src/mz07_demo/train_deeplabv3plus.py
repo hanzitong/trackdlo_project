@@ -24,6 +24,35 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# =============================================================================
+# [重要] ImageNet 正規化について
+#
+# ResNet34 エンコーダは ImageNet (約 120 万枚の自然画像) で事前学習されている。
+# その学習時の入力は以下の mean/std で正規化されていた:
+#   mean = [0.485, 0.456, 0.406]  (RGB 各チャンネルの平均)
+#   std  = [0.229, 0.224, 0.225]  (RGB 各チャンネルの標準偏差)
+#
+# 事前学習済みモデルを Fine-tuning (転移学習) する場合、推論時の入力も
+# 同じ mean/std で正規化しなければならない。
+#
+# 正規化しないと何が起きるか:
+#   - 事前学習時の入力: mean=0 付近、std=1 付近 の分布
+#   - 正規化なし の入力: [0, 1] の一様分布 → mean≈0.5、std≈0.29 程度
+#   - 分布がずれると、エンコーダの 1 層目の畳み込みが本来期待する
+#     特徴量マップを生成できず、以降の全層が誤った活性化をし続ける
+#   - 結果として、事前学習の恩恵をほぼ受けられず IoU が極端に低くなる
+#
+# 正規化式:
+#   normalized = (pixel_value / 255.0 - mean) / std
+#
+# 注意: この定数は学習・推論スクリプト全てで同じ値を使うこと。
+#   - train_deeplabv3plus.py   (ここ)
+#   - test_infer_deeplabv3plus.py
+#   - test_cablekeypoint_pipeline.py の infer_mask()
+# =============================================================================
+IMAGENET_MEAN: np.ndarray = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD: np.ndarray  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -53,13 +82,15 @@ RANDOM_SEED: int = 42
 class CableDataset(Dataset):
     """(BGR 画像, バイナリマスク) ペアを管理する Dataset。"""
 
-    def __init__(self, pairs: list[tuple[Path, Path]]) -> None:
+    def __init__(self, pairs: list[tuple[Path, Path]], augment: bool = False) -> None:
         """Dataset を初期化する。
 
         Args:
-            pairs: (image_path, mask_path) のリスト
+            pairs:   (image_path, mask_path) のリスト
+            augment: True のとき学習用ランダムフリップを適用する
         """
         self.pairs: list[tuple[Path, Path]] = pairs
+        self.augment: bool = augment
 
     def __len__(self) -> int:
         """サンプル数を返す。"""
@@ -68,7 +99,7 @@ class CableDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """idx 番目の (image_tensor, mask_tensor) を返す。
 
-        image_tensor: (3, 480, 640), float32, [0, 1]
+        image_tensor: (3, 480, 640), float32, ImageNet 正規化済み
         mask_tensor:  (1, 480, 640), float32, {0.0, 1.0}
         """
         img_path: Path
@@ -82,16 +113,26 @@ class CableDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         mask: np.ndarray = np.array(Image.open(mask_path), dtype=np.uint8)
-        mask = (mask > 0).astype(np.float32)    # 念のため再 binary 化
+        mask = (mask > 0).astype(np.uint8)
 
-        # uint8 [0,255] to float32 [0,1]
+        # データ拡張: image と mask に同一変換を適用する
+        if self.augment:
+            if random.random() > 0.5:
+                image = np.fliplr(image).copy()   # 水平フリップ
+                mask  = np.fliplr(mask).copy()
+            if random.random() > 0.5:
+                image = np.flipud(image).copy()   # 垂直フリップ
+                mask  = np.flipud(mask).copy()
+
+        # [0,255] → [0,1] → ImageNet 正規化 (推論側と必ず揃えること)
         image = image.astype(np.float32) / 255.0
+        image = (image - IMAGENET_MEAN) / IMAGENET_STD  # (H,W,3) にブロードキャスト
 
         # HWC to CHW: (480,640,3) to (3,480,640)
         image = np.transpose(image, (2, 0, 1))
 
         # HW to 1HW: モデル出力 (N,1,H,W) と形状を合わせる
-        mask = np.expand_dims(mask, axis=0)
+        mask = np.expand_dims(mask.astype(np.float32), axis=0)
 
         return torch.tensor(image, dtype=torch.float32), torch.tensor(mask, dtype=torch.float32)
 
@@ -209,13 +250,13 @@ def main() -> None:
 
     # ─── DataLoader ───────────────────────────────────────────────────────
     train_loader: DataLoader = DataLoader(
-        CableDataset(train_pairs),
+        CableDataset(train_pairs, augment=True),   # 学習時のみ拡張
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=2,
     )
     val_loader: DataLoader = DataLoader(
-        CableDataset(val_pairs),
+        CableDataset(val_pairs, augment=False),    # 検証時は拡張なし
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=2,

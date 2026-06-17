@@ -69,6 +69,10 @@ WEIGHTS: Path  = HERE / "best_deeplabv3plus_cable.pth"
 NUM_NODES: int = 15
 DEVICE: str    = "cuda" if torch.cuda.is_available() else "cpu"
 
+# ImageNet 正規化パラメータ (train_deeplabv3plus.py と必ず同じ値にすること)
+IMAGENET_MEAN: np.ndarray = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD: np.ndarray  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
 # カメラ内部パラメータはカメラ起動後に実機から取得して上書きする
 FX: float = 0.0
 FY: float = 0.0
@@ -146,9 +150,10 @@ _params.tol      = 1e-4
 def infer_mask(bgr: np.ndarray) -> np.ndarray:
     """BGR 画像からバイナリマスク (uint8, 0=background / 1=cable) を返す。
 
-    前処理は学習時と同一にすること。
+    前処理は train_deeplabv3plus.py の CableDataset.__getitem__ と完全に同一にすること。
     """
     rgb: np.ndarray = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    rgb = (rgb - IMAGENET_MEAN) / IMAGENET_STD  # ImageNet 正規化
     x: torch.Tensor = torch.tensor(np.transpose(rgb, (2, 0, 1))).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
         prob: np.ndarray = torch.sigmoid(model(x))[0, 0].cpu().numpy()

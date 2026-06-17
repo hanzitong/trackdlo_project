@@ -25,6 +25,10 @@ ROOT: Path = Path(__file__).resolve().parent
 WEIGHTS: Path = ROOT / "best_deeplabv3plus_cable.pth"
 IMAGE_PATH: Path = ROOT / "sample_data" / "bgr_0000.png"
 
+# ImageNet 正規化パラメータ (train_deeplabv3plus.py と必ず同じ値にすること)
+IMAGENET_MEAN: np.ndarray = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD: np.ndarray  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
 
 # ─── モデルのロード ────────────────────────────────────────────────────────────
 
@@ -48,9 +52,13 @@ if bgr is None:
     raise FileNotFoundError(f"image not found: {IMAGE_PATH}")
 print(f"image loaded: {IMAGE_PATH.name}  shape={bgr.shape}")
 
-# 前処理: BGR to RGB, [0,1] 正規化, (H,W,C) to (C,H,W) to (1,C,H,W)
-# 学習時 (train.py) と同じ前処理にすること。異なると精度が落ちる。
+# 前処理: 学習時 (train_deeplabv3plus.py) と完全に同じ順序で行う
+# 1. BGR to RGB
+# 2. [0,255] to [0,1]
+# 3. ImageNet 正規化 (mean/std) --- 学習側と揃えないとモデルの重みが正しく機能しない
+# 4. (H,W,C) to (C,H,W) to (1,C,H,W)
 rgb: np.ndarray = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+rgb = (rgb - IMAGENET_MEAN) / IMAGENET_STD
 x_t: torch.Tensor = torch.tensor(np.transpose(rgb, (2, 0, 1))).unsqueeze(0)  # (1,3,H,W)
 
 with torch.no_grad():
