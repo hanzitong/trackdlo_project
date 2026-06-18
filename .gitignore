@@ -1,10 +1,9 @@
 __pycache__/
 .venv/
 src/trackdlo_examples/.uv-cache/
+# uv が相対 cache-dir を誤って解決したときに生じる迷子キャッシュ
+**/.uv-cache/
 src/trackdlo_examples/windows_wheels/
-src/trackdlo_examples/python/pipeline_demo/*.so
-src/trackdlo_examples/python/pipeline_demo/*.dll
-src/trackdlo_examples/python/pipeline_demo/*.pth
 .vscode/
 build/
 build_win/
@@ -18,3 +17,29 @@ data/output/*/*.json
 data/*.bag
 # data/
 test.cpp
+
+# AI モデル重みファイル (大容量バイナリ、再現可能なため管理不要)
+*.pth
+*.hef
+
+# 学習データ (大容量)
+src/bmask_gen/data_aoyama/
+src/bmask_gen/data_aoyama_halfsize/
+
+# Hailo コンパイル済みアーティファクト
+src/bmask_gen/hailo*/
+
+# bmask_gen 重みディレクトリ
+src/bmask_gen/weights_*/
+
+# Windows バイナリ (外部 SDK 提供、再配布不可)
+*.dll
+*.lib
+
+# Hailo SDK / ランタイムが生成するログ・ロックファイル
+/acceleras.log
+/hailo_sdk.client.log
+/hailort.log
+/pyhailort.log
+/.install_logs/
+src/realsense_practice/

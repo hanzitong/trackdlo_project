@@ -73,7 +73,7 @@ import segmentation_models_pytorch as smp   # DeepLabV3+ 実装を提供する�
 # .resolve() でシンボリックリンクを解決した絶対パスに変換。
 # .parent.parent で scripts/ の 2 つ上、つまりリポジトリルート (bmask_gen/) を指す。
 # C++ で言えば: std::filesystem::path(__FILE__).parent_path().parent_path()
-ROOT = Path(__file__).resolve().parent.parent
+ROOT: Path = Path(__file__).resolve().parent.parent
 
 
 # =============================================================================
@@ -89,47 +89,50 @@ ROOT = Path(__file__).resolve().parent.parent
 # DataLoader がこのクラスを使って自動的にバッチを作る。
 # =============================================================================
 class CableDataset(Dataset):
-    def __init__(self, image_dir, mask_dir):
-        # Path オブジェクトに変換 (文字列のまま渡しても動くが、/ 演算子でパス結合が使える)
-        self.image_dir = Path(image_dir)
-        self.mask_dir = Path(mask_dir)
+    """ケーブルセグメンテーション用の Dataset。images/ と masks/ のペアを管理する。"""
+
+    def __init__(self, image_dir: Path | str, mask_dir: Path | str) -> None:
+        # Path オブジェクトに変換 (文字列のまま渡しても動くが、/ 演算子でのパス結合や便利機能が使える)
+        self.image_dir: Path = Path(image_dir)
+        self.mask_dir: Path = Path(mask_dir)
 
         # ディレクトリ内の画像ファイルを列挙してソート。
         # リスト内包表記: [式 for 変数 in イテラブル if 条件]
         # C++ の範囲 for + push_back に相当:
         #   for (auto& p : image_dir) { if (is_image(p)) paths.push_back(p); }
         # .suffix.lower() → 拡張子を小文字で取得 (.PNG → .png)
-        self.image_paths = sorted(
-            [p for p in self.image_dir.iterdir() if p.suffix.lower() in [".png", ".jpg", ".jpeg"]]
+        self.image_paths: list[Path] = sorted(
+            # [p for p in self.image_dir.iterdir() if p.suffix.lower() in [".png", ".jpg", ".jpeg"]]
+            [p for p in self.image_dir.iterdir() if p.suffix in [".png"]]
         )
 
         if len(self.image_paths) == 0:
-            raise RuntimeError(f"画像がありません: {self.image_dir}")
+            raise RuntimeError(f"no image : {self.image_dir}")
 
     # DataLoader が「何サンプルあるか」を問い合わせるときに呼ばれる
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.image_paths)
 
     # DataLoader が idx 番目のサンプルを要求するときに呼ばれる
     # 戻り値: (image_tensor, mask_tensor) のタプル
-    def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        img_path: Path = self.image_paths[idx]
         # .stem = 拡張子を除いたファイル名。"img_0001.png" → "img_0001"
-        mask_path = self.mask_dir / f"{img_path.stem}.png"
+        mask_path: Path = self.mask_dir / f"{img_path.stem}.png"
 
         if not mask_path.exists():
             raise FileNotFoundError(f"対応するマスクがありません: {mask_path}")
 
         # OpenCV は BGR で読み込むので RGB に変換する
         # (モデルは ImageNet で RGB 学習済みのため、順序が違うと精度が落ちる)
-        image = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+        image: np.ndarray = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
         if image is None:
             raise RuntimeError(f"画像を読めませんでした: {img_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # PIL で読むと numpy 配列として値が保存される。
         # uint8 で読んで後で float に変換する。
-        mask = np.array(Image.open(mask_path), dtype=np.uint8)
+        mask: np.ndarray = np.array(Image.open(mask_path), dtype=np.uint8)
 
         # マスクの値が 0/255 の場合も 0/1 に正規化する
         # (mask > 0) は bool 配列 → astype(float32) で 0.0 / 1.0 に変換
@@ -176,7 +179,23 @@ class CableDataset(Dataset):
 #   threshold : sigmoid 出力がこれより大きければ「ケーブル」と判定
 #   eps       : ゼロ除算防止の微小値 (分母が 0 になるケースを防ぐ)
 # =============================================================================
-def calc_iou_from_logits(logits, masks, threshold=0.5, eps=1e-7):
+def calc_iou_from_logits(
+    logits: torch.Tensor,
+    masks: torch.Tensor,
+    threshold: float = 0.5,
+    eps: float = 1e-7,
+) -> float:
+    """モデル出力 (logit) と正解マスクから IoU を計算して返す。
+
+    Args:
+        logits:    モデルの生出力テンソル (B, 1, H, W)
+        masks:     正解マスクテンソル (B, 1, H, W)、値は 0.0 か 1.0
+        threshold: sigmoid 出力がこれより大きければケーブルと判定
+        eps:       ゼロ除算防止の微小値
+
+    Returns:
+        バッチ内の平均 IoU (0.0 ～ 1.0)
+    """
     # sigmoid: logit → 確率 [0, 1] に変換する関数
     probs = torch.sigmoid(logits)
 
@@ -213,13 +232,31 @@ def calc_iou_from_logits(logits, masks, threshold=0.5, eps=1e-7):
 # C++ では自動微分の仕組みがないため手動で勾配を計算するが、
 # PyTorch は計算グラフを自動的に構築し backward() で勾配を自動計算する。
 # =============================================================================
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+) -> tuple[float, float]:
+    """1 エポック分の学習を行い、平均損失と平均 IoU を返す。
+
+    Args:
+        model:     学習対象のモデル
+        loader:    訓練データの DataLoader
+        criterion: 損失関数 (BCEWithLogitsLoss 等)
+        optimizer: オプティマイザ (Adam 等)
+        device:    実行デバイス ("cpu" または "cuda")
+
+    Returns:
+        (平均損失, 平均 IoU) のタプル
+    """
     # model.train(): BatchNorm や Dropout を「学習モード」にする。
     # BatchNorm は学習時はバッチ内の統計量を使い、推論時は蓄積した移動平均を使う。
     # この切り替えを明示的に行う必要がある。
     model.train()
-    total_loss = 0.0
-    total_iou = 0.0
+    total_loss: float = 0.0
+    total_iou: float = 0.0
 
     # loader はバッチ単位でデータを返すイテレータ。
     # for images, masks in loader: で (image_batch, mask_batch) が得られる。
@@ -264,11 +301,27 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 #   勾配が不要な推論・検証時に使うことでメモリ使用量と速度が改善する。
 # =============================================================================
 @torch.no_grad()
-def validate_one_epoch(model, loader, criterion, device):
+def validate_one_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: str,
+) -> tuple[float, float]:
+    """1 エポック分の検証を行い、平均損失と平均 IoU を返す。重みの更新は行わない。
+
+    Args:
+        model:     評価対象のモデル
+        loader:    検証データの DataLoader
+        criterion: 損失関数
+        device:    実行デバイス ("cpu" または "cuda")
+
+    Returns:
+        (平均損失, 平均 IoU) のタプル
+    """
     # model.eval(): BatchNorm や Dropout を「推論モード」にする
     model.eval()
-    total_loss = 0.0
-    total_iou = 0.0
+    total_loss: float = 0.0
+    total_iou: float = 0.0
 
     for images, masks in loader:
         images = images.to(device)
@@ -288,19 +341,20 @@ def validate_one_epoch(model, loader, criterion, device):
 #
 # 学習全体の設定と実行を行うエントリポイント。
 # =============================================================================
-def main():
+def main() -> None:
+    """DeepLabV3+ の学習全体を実行するエントリポイント。"""
     # GPU が使えれば "cuda"、なければ "cpu" を使う
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
     print("device =", device)
 
     # ─── データセットの作成 ───────────────────────────────────────────────
     # CableDataset は images/ と masks/ のペアを管理するだけ (I/O はしない)。
     # 実際の読み込みは DataLoader が __getitem__ を呼ぶときに行われる。
-    train_dataset = CableDataset(
+    train_dataset: CableDataset = CableDataset(
         image_dir=ROOT / "data/dataset/images/train",
         mask_dir=ROOT / "data/dataset/masks/train",
     )
-    val_dataset = CableDataset(
+    val_dataset: CableDataset = CableDataset(
         image_dir=ROOT / "data/dataset/images/val",
         mask_dir=ROOT / "data/dataset/masks/val",
     )
@@ -321,14 +375,14 @@ def main():
     #
     # pin_memory=True: ホスト (CPU) メモリをページロック (ピン) する。
     #   ピンされたメモリは DMA で GPU に転送できるため .to(device) が高速になる。
-    train_loader = DataLoader(
+    train_loader: DataLoader = DataLoader(
         train_dataset,
         batch_size=4,
         shuffle=True,
         num_workers=2,
         pin_memory=True,
     )
-    val_loader = DataLoader(
+    val_loader: DataLoader = DataLoader(
         val_dataset,
         batch_size=4,
         shuffle=False,
@@ -352,7 +406,7 @@ def main():
     # in_channels=3: 入力は RGB の 3 チャンネル画像
     # classes=1: 出力は「ケーブルである確率」の 1 チャンネルマップ
     # activation=None: sigmoid を付けない (損失関数側で処理するため)
-    model = smp.DeepLabV3Plus(
+    model: smp.DeepLabV3Plus = smp.DeepLabV3Plus(
         encoder_name="resnet34",
         encoder_weights="imagenet",
         in_channels=3,
@@ -362,23 +416,27 @@ def main():
 
     # ─── 損失関数とオプティマイザ ──────────────────────────────────────────
     # BCEWithLogitsLoss: 2値分類の標準的な損失関数 (logit を直接受け取る)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion: nn.BCEWithLogitsLoss = nn.BCEWithLogitsLoss()
 
     # Adam: 勾配降下法のアルゴリズム。lr=学習率 (重みを更新する幅)
     # lr=1e-4 は比較的小さい値で、安定した学習が期待できる。
     # model.parameters() = モデルの全重みパラメータを返す
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer: torch.optim.Adam = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # ─── 学習ループ ────────────────────────────────────────────────────────
-    best_val_iou = -1.0
-    num_epochs = 100
+    best_val_iou: float = -1.0
+    num_epochs: int = 100
 
     for epoch in range(num_epochs):
         # 訓練データを 1 周して重みを更新
+        train_loss: float
+        train_iou: float
         train_loss, train_iou = train_one_epoch(
             model, train_loader, criterion, optimizer, device
         )
         # 検証データで精度を確認 (重み更新なし)
+        val_loss: float
+        val_iou: float
         val_loss, val_iou = validate_one_epoch(
             model, val_loader, criterion, device
         )

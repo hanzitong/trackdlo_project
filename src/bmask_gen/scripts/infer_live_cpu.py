@@ -18,13 +18,13 @@ import numpy as np
 import torch
 import segmentation_models_pytorch as smp
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT: Path = Path(__file__).resolve().parent.parent
 
-device = "cpu"
+device: str = "cpu"
 print("device =", device)
 
 # ─── モデルのロード ──────────────────────────────────────────────────────
-model = smp.DeepLabV3Plus(
+model: smp.DeepLabV3Plus = smp.DeepLabV3Plus(
     encoder_name="resnet34",
     encoder_weights=None,
     in_channels=3,
@@ -45,7 +45,7 @@ model.eval()
 print("model loaded")
 
 # ─── カメラのオープン ────────────────────────────────────────────────────
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+cap: cv2.VideoCapture = cv2.VideoCapture(0, cv2.CAP_V4L2)
 if not cap.isOpened():
     raise RuntimeError("カメラを開けませんでした")
 
@@ -54,30 +54,35 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # ─── 推論ループ ──────────────────────────────────────────────────────────
 while True:
+    # cap.read() は (bool, np.ndarray) を返す。デストラクチャリング前に型を宣言する。
+    ret: bool
+    frame: np.ndarray   # shape (480, 640, 3), dtype uint8, BGR
     ret, frame = cap.read()
     if not ret:
         print("フレームを取得できませんでした")
         break
 
     # ── 前処理 (学習時と完全に同じ手順) ─────────────────────────────────
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    x = rgb.astype(np.float32) / 255.0
+    rgb: np.ndarray = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # x は np.ndarray として始まり、torch.tensor() で torch.Tensor に変わる。
+    # 型の変わり目を明確にするため、Tensor 変換後は x_t という名前を使う。
+    x: np.ndarray = rgb.astype(np.float32) / 255.0
     x = np.transpose(x, (2, 0, 1))              # (H,W,C) → (C,H,W)
-    x = torch.tensor(x).unsqueeze(0)            # (C,H,W) → (1,C,H,W)
+    x_t: torch.Tensor = torch.tensor(x).unsqueeze(0)   # (C,H,W) → (1,C,H,W)
     # GPU 版と異なり .to(device) は省略 (テンソルは最初から CPU にある)
 
     # ── 推論 ─────────────────────────────────────────────────────────────
     with torch.no_grad():
         # CPU 版ではテンソルが最初から CPU にあるため .cpu() 呼び出しが不要。
-        prob = torch.sigmoid(model(x))[0, 0].numpy()
+        prob: np.ndarray = torch.sigmoid(model(x_t))[0, 0].numpy()
 
     # ── マスク生成・表示 ──────────────────────────────────────────────────
-    mask = (prob > 0.5).astype(np.uint8)
+    mask: np.ndarray = (prob > 0.5).astype(np.uint8)
     print(f"mask pixels (cable): {mask.sum()}", end="\r")
 
-    overlay = frame.copy()
+    overlay: np.ndarray = frame.copy()
     overlay[mask == 1] = (0, 200, 0)
-    result = cv2.addWeighted(frame, 0.6, overlay, 0.4, 0)
+    result: np.ndarray = cv2.addWeighted(frame, 0.6, overlay, 0.4, 0)
 
     cv2.imshow("camera", frame)
     cv2.imshow("mask (green = cable)", result)

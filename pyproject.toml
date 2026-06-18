@@ -13,6 +13,7 @@ dependencies = [
     "torchvision==0.27.0",
     # RealSense Python バインディング (librealsense2 本体は別途 apt でインストール済み)
     "pyrealsense2",
+    "onnxscript>=0.7.0",
 ]
 
 # PyTorch は PyPI に CPU 版しか置かれていない。

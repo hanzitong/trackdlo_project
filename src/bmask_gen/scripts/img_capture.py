@@ -13,18 +13,19 @@
 
 from pathlib import Path
 import cv2
+import numpy as np
 
 # スクリプトの 2 階層上 = bmask_gen/ ルート
-ROOT = Path(__file__).resolve().parent.parent
+ROOT: Path = Path(__file__).resolve().parent.parent
 
 # 保存先ディレクトリを作成する
 # parents=True: 中間ディレクトリも含めて再帰的に作成 (mkdir -p と同じ)
 # exist_ok=True: すでに存在する場合もエラーにしない
-save_dir = ROOT / "data/captured"
+save_dir: Path = ROOT / "data/captured"
 save_dir.mkdir(parents=True, exist_ok=True)
 
 # カメラを開く (0 = /dev/video0, CAP_V4L2 = Linux V4L2 バックエンド)
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+cap: cv2.VideoCapture = cv2.VideoCapture(0, cv2.CAP_V4L2)
 if not cap.isOpened():
     raise RuntimeError("cannot open camera !")
 
@@ -32,9 +33,12 @@ if not cap.isOpened():
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-count = 0   # 保存枚数のカウンタ
+count: int = 0   # 保存枚数のカウンタ
 
 while True:
+    # cap.read() は (bool, np.ndarray) を返す。デストラクチャリング前に型を宣言する。
+    ret: bool
+    frame: np.ndarray   # shape (480, 640, 3), dtype uint8, BGR
     ret, frame = cap.read()
     if not ret:
         break
@@ -43,14 +47,14 @@ while True:
 
     # cv2.waitKey(1): 1ms 待機してキー入力を取得する
     # & 0xFF: 上位バイトを除去して ASCII コードを取り出す
-    key = cv2.waitKey(1) & 0xFF
+    key: int = cv2.waitKey(1) & 0xFF
 
     # 's' キーで現在のフレームを保存
     # ord('s'): 文字 's' の ASCII コード (115) を取得する
     if key == ord('s'):
         # f"img_{count:04d}.png": count を 4 桁ゼロパディングでフォーマット
         #   例: count=0 → "img_0000.png", count=12 → "img_0012.png"
-        filename = save_dir / f"img_{count:04d}.png"
+        filename: Path = save_dir / f"img_{count:04d}.png"
         cv2.imwrite(str(filename), frame)
         print("saved:", filename)
         count += 1

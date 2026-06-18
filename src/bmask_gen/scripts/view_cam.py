@@ -7,12 +7,13 @@
 # =============================================================================
 
 import cv2
+import numpy as np
 
 # ─── カメラを開く ────────────────────────────────────────────────────────
 # cv2.VideoCapture(0): デバイス番号 0 = /dev/video0 を開く
 # cv2.CAP_V4L2: Linux の Video4Linux2 バックエンドを明示的に指定する
 #   指定しないと自動選択になりフォーマット設定が意図通り効かないことがある
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+cap: cv2.VideoCapture = cv2.VideoCapture(0, cv2.CAP_V4L2)
 if not cap.isOpened():
     raise RuntimeError("カメラを開けませんでした")
 
@@ -27,7 +28,7 @@ if not cap.isOpened():
 #   文字列 'YUYV' を 4 文字に分解して fourcc コードを生成する。
 #   *'YUYV' は文字列をアンパック (= 'Y','U','Y','V' を個別引数として渡す)。
 #   C++ で言えば: cv::VideoWriter::fourcc('Y','U','Y','V')
-fourcc = cv2.VideoWriter_fourcc(*'YUYV')
+fourcc: int = cv2.VideoWriter_fourcc(*'YUYV')
 cap.set(cv2.CAP_PROP_FOURCC, fourcc)
 
 # ─── 解像度・FPS 設定 ────────────────────────────────────────────────────
@@ -38,10 +39,10 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 cap.set(cv2.CAP_PROP_FPS, 30)
 
 # ─── 実際の設定値を取得して表示 ──────────────────────────────────────────
-actual_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-actual_width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-actual_fps    = cap.get(cv2.CAP_PROP_FPS)
+actual_fourcc: int   = int(cap.get(cv2.CAP_PROP_FOURCC))
+actual_width:  int   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+actual_height: int   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+actual_fps:    float = cap.get(cv2.CAP_PROP_FPS)
 
 # FOURCC コードは 32 ビット整数として格納されている。
 # 各バイトに 1 文字が格納されており、ビットシフトで取り出す。
@@ -51,7 +52,8 @@ actual_fps    = cap.get(cv2.CAP_PROP_FPS)
 #   v >> (8*i) でバイト単位にシフトし、& 0xFF で下位 8 ビット (1 文字) を取り出す。
 #   chr() で ASCII コードを文字に変換。
 #   C++ で言えば: char c = (v >> (8*i)) & 0xFF;
-def decode_fourcc(v):
+def decode_fourcc(v: int) -> str:
+    """32 ビット FOURCC 整数を 4 文字の文字列に変換して返す。"""
     return "".join([chr((v >> 8*i) & 0xFF) for i in range(4)])
 
 print("FOURCC:", decode_fourcc(actual_fourcc))
@@ -60,6 +62,8 @@ print("FPS   :", actual_fps)
 
 # ─── カメラ映像の表示ループ ──────────────────────────────────────────────
 while True:
+    ret: bool
+    frame: np.ndarray   # shape (480, 640, 3), dtype uint8, BGR
     ret, frame = cap.read()
     if not ret:
         break

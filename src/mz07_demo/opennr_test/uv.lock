@@ -1,0 +1,19 @@
+version = 1
+revision = 3
+requires-python = "==3.10.11"
+
+[[package]]
+name = "opennr-py"
+version = "0.3.0"
+source = { git = "http://10.34.1.132:3000/CFDs_Python/opennr_py.git#bbc7f0110613501aa65472f360891233a71de0a4" }
+
+[[package]]
+name = "opennr-test"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "opennr-py" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "opennr-py", git = "http://10.34.1.132:3000/CFDs_Python/opennr_py.git" }]

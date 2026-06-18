@@ -55,7 +55,7 @@ import segmentation_models_pytorch as smp
 # 設定
 # =============================================================================
 
-WEIGHTS   = _SRC / "bmask_gen/weights/best_deeplabv3plus_cable.pth"
+WEIGHTS   = _SRC / "mz07_demo/best_deeplabv3plus_cable.pth"
 NUM_NODES = 15
 DEVICE    = "cuda" if torch.cuda.is_available() else "cpu"
 
