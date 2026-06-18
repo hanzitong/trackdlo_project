@@ -1,6 +1,7 @@
 __pycache__/
 .venv/
 src/trackdlo_examples/.uv-cache/
+
 # uv が相対 cache-dir を誤って解決したときに生じる迷子キャッシュ
 **/.uv-cache/
 src/trackdlo_examples/windows_wheels/
@@ -43,3 +44,5 @@ src/bmask_gen/weights_*/
 /pyhailort.log
 /.install_logs/
 src/realsense_practice/
+
+
