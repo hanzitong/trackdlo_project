@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - バグ修正は、`docs/problem_solving/` 内に、バグごとにファイルを作成して保管してください。
 - 実装計画は、`docs/development_plan/` 内に書いておいてください。このdevelopment_plan/はclaudeのメモ場として使って良いです。
 - 理解を助けるための説明書ドキュメントは、`docs/my_text/` 以下に書いてください。このディレクトリに書く際は特に詳細に書いてほしいです。
+- **グローバル変数を禁止する。Python・C++ 問わず。** 定数 (`const` / 大文字スネークケース) も含む。値は引数・戻り値・構造体・クラスフィールドで受け渡すこと。
 
 
 # 事前情報

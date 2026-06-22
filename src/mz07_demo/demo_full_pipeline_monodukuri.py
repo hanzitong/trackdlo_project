@@ -7,7 +7,8 @@ RealSense D405 から取得した BGR/depth 画像をもとにケーブルのキ
 pipeline:
   1. RealSense D405 から BGR + depth 画像を取得
   2. DeepLabV3+ でバイナリマスクを生成
-  3. バイナリマスク + depth から 3D 点群を生成 (preprocessing C++)
+  3. バイナリマスク + depth から 3D 点群を生成 (preprocessing C++) 
+        * 現状のpreprocessing C++だとバグがあるかも。。Python実装を使いましょう。
   4. TrackDLO でケーブルキーポイントを推定 (trackdlo C++)
   5. 中間キーポイントを OpenNR 経由でロボットアームへ送る
 
@@ -108,10 +109,10 @@ _cfg.enable_stream(rs.stream.depth, 640, 480, rs.format.z16,  30)
 _profile: rs.pipeline_profile = _pipeline.start(_cfg)
 
 _intr = _profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-FX = _intr.fx
-FY = _intr.fy
-CX = _intr.ppx
-CY = _intr.ppy
+FX = _intr.fx       # focal length [pixel]
+FY = _intr.fy       # focal length [pixel]
+CX = _intr.ppx      # main point x coordinate [pixel]
+CY = _intr.ppy      # main point y coordinate [pixel]
 print(f"intrinsics: fx={FX:.1f} fy={FY:.1f} cx={CX:.1f} cy={CY:.1f}")
 
 _align: rs.align = rs.align(rs.stream.color)
@@ -366,11 +367,8 @@ SAFE_Z_MAX: float = 500
 SAFE_Z_MIN: float = 110
 
 
-offsetX = 35.0
-offsetY = 70.0
-
-#offsetX = 0.0
-#offsetY = 0.0
+# demo_offsetX = 35.0
+# demo_offsetY = 70.0
 
 
 def is_safe_xyz(x: float, y: float, z: float) -> bool:
