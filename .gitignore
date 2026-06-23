@@ -34,7 +34,7 @@ src/bmask_gen/hailo*/
 src/bmask_gen/weights_*/
 
 # Windows バイナリ (外部 SDK 提供、再配布不可)
-*.dll
+# *.dll
 *.lib
 
 # Hailo SDK / ランタイムが生成するログ・ロックファイル

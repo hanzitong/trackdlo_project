@@ -1,3 +1,4 @@
+
 """
 BGR と depth 画像を RealSense D405 で取得して保存するデータ収集スクリプト。
 
@@ -68,6 +69,7 @@ try:
 
         if key == 27:   # ESC
             break
+
 finally:
     pipeline.stop()
     cv2.destroyAllWindows()
