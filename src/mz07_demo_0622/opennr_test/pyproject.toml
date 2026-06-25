@@ -1,0 +1,10 @@
+[project]
+name = "opennr_test"
+version = "0.1.0"
+requires-python = "==3.10.11"
+dependencies = [
+    "opennr-py",
+]
+
+[tool.uv.sources]
+opennr-py = { git = "http://10.34.1.132:3000/CFDs_Python/opennr_py.git" }

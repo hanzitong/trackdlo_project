@@ -1,4 +1,25 @@
 
+"""
+demo_full_pipeline_0622.py
+
+RealSense D405 から取得した BGR/depth 画像をもとにケーブルのキーポイントを推定し、
+中間キーポイントを OpenNR 経由でロボットアームへ送るフルパイプラインデモ。
+
+pipeline:
+  1. RealSense D405 から BGR + depth 画像を取得
+  2. DeepLabV3+ でバイナリマスクを生成
+  3. バイナリマスク + depth から 3D 点群を生成 (Python 実装)
+  4. TrackDLO でケーブルキーポイントを推定 (trackdlo C++)
+  5. 中間キーポイントを OpenNR 経由でロボットアームへ送る
+
+key controls:
+  Space  リトライ
+  ESC    終了
+
+usage:
+  cd src/mz07_demo && python demo_full_pipeline_0622.py
+"""
+
 import os
 import sys
 import time
@@ -8,15 +29,16 @@ from pathlib import Path
 import platform
 
 
-HERE: Path = Path(__file__).resolve().parent
+# import より前に .dll のパスを環境変数へセットする必要がある
+HERE: Path = Path(__file__).resolve().parent.parent
 if platform.system() == "Linux":
     os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "lib" / "libtrackdlo_c.so")
     os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "lib" / "libpreprocessing_c.so")
     sys.path.insert(0, str(HERE))
     sys.path.insert(0, str(HERE / "op"))
 elif platform.system() == "Windows":
-    os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "lib" / "libtrackdlo_c.dll")
-    os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "lib" / "libpreprocessing_c.dll")
+    os.environ["TRACKDLO_LIB_PATH"]      = str(HERE / "mz07_demo_0622" / "lib" / "libtrackdlo_c.dll")
+    os.environ["PREPROCESSING_LIB_PATH"] = str(HERE / "mz07_demo_0622" / "lib" / "libpreprocessing_c.dll")
     sys.path.insert(0, str(HERE))
     sys.path.insert(0, str(HERE / "opennr_test" / ".venv" / "Lib" / "site-packages"))
 
@@ -34,6 +56,10 @@ from trackdlo_cdll import (
     sort_pts,
 )
 
+
+# =============================================================================
+# データクラス
+# =============================================================================
 
 @dataclass
 class CameraIntrinsics:
@@ -387,7 +413,7 @@ def mask_depth_to_pointcloud(
 def main() -> None:
     """RealSense から 1 フレーム取得し、TrackDLO でキーポイントを推定してロボットへ送る。"""
     # ── 設定 ──────────────────────────────────────────────────────────────────
-    weights: Path    = HERE / "best_deeplabv3plus_cable.pth"
+    weights: Path    = HERE / "mz07_demo_0622" / "weights" / "best_deeplabv3plus_cable.pth"
     num_nodes: int   = 15
     max_retries: int = 5
     z_max_m: float   = 2000.0   # mm
@@ -403,15 +429,17 @@ def main() -> None:
         safe_z_min=110.0,  safe_z_max=500.0,
     )
 
-    _r: float = np.deg2rad(180)
+    # カメラ座標系からロボットベース座標系への同次変換行列 (4×4)
+    # 実機キャリブレーション後にここを書き換えること。
+    _r: float = np.deg2rad(90)
     T_camera_to_robot: np.ndarray = np.array([
-        [1.0,        0.0,         0.0, robot_cfg.home_x_mm],
-        [0.0, np.cos(_r), -np.sin(_r), robot_cfg.home_y_mm],
-        [0.0, np.sin(_r),  np.cos(_r), robot_cfg.home_z_mm],
-        [0.0,          0.0,          0.0, 1.0                 ],
+        [np.cos(_r), np.sin(_r),  0.0,  0.0],
+        [-1 * np.sin(_r), np.cos(_r),   0.0,  0.0],
+        [0.0,        0.0,          1.0,  0.0],
+        [0.0,        0.0,          0.0,  1.0                 ],
     ], dtype=np.float64)
 
-
+    # ── 初期化 ────────────────────────────────────────────────────────────────
     print(f"device = {device}")
     model: smp.DeepLabV3Plus = load_model(weights, device)
     print("model loaded")
@@ -433,19 +461,20 @@ def main() -> None:
         """ロボットベース座標系の中間ノード座標をロボットアームへ送る。"""
         if not np.all(np.isfinite(mid_node_robot)):
             return
-        target_x: float = float(mid_node_robot[0])
-        target_y: float = float(mid_node_robot[1])
-        target_z: float = 120.0    # Z は安全のため固定値
+        shift_x: float = float(mid_node_robot[0])
+        shift_y: float = float(mid_node_robot[1])
+        shift_z: float = 80.0    # Z は安全のため固定値
         if not is_safe_xyz(target_x, target_y, target_z, robot_cfg):
             print("target not in safe range, skipping")
             return
-        pose: NR_POSE = NR_POSE(
-            target_x, target_y, target_z,
-            robot_cfg.home_roll_deg, robot_cfg.home_pitch_deg, robot_cfg.home_yaw_deg,
+        shift_pose: NR_POSE = NR_POSE(
+            -1 * target_y, target_x, target_z,
+            0.0,      0.0,      0.0,
         )
-        global_nr.CtrlMoveX(pose, nType=1)
+        global_nr.CtrlMoveXT(shift_pose, nType=1)
         sleepUntilRobotStopped()
 
+    # ── フレーム取得〜TrackDLO ────────────────────────────────────────────────
     print("start estimation pipeline")
     try:
         state: "TrackdloState | None" = None
@@ -497,9 +526,10 @@ def main() -> None:
 
         mid: np.ndarray = get_mid_node(state.Y)   # mm
         p_h: np.ndarray = np.array([mid[0], mid[1], mid[2], 1.0], dtype=np.float64)
-        mid_robot: np.ndarray = (T_camera_to_robot @ p_h)[:3]
+        mid_robot: np.ndarray = p_h
+        #mid_robot: np.ndarray = (T_camera_to_robot @ p_h)[:3]
         print(f"mid node (camera): X={mid[0]:+.1f}  Y={mid[1]:+.1f}  Z={mid[2]:.1f}  [mm]")
-        print(f"mid node (robot):  X={mid_robot[0]:+.1f}  Y={mid_robot[1]:+.1f}  Z={mid_robot[2]:.1f}  [mm]")
+        #print(f"mid node (robot):  X={mid_robot[0]:+.1f}  Y={mid_robot[1]:+.1f}  Z={mid_robot[2]:.1f}  [mm]")
 
         draw_debug(bgr, depth_mm, mask, state.Y, intr)
         cv2.waitKey(1)

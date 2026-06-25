@@ -23,9 +23,14 @@ test.cpp
 *.pth
 *.hef
 
-# 学習データ (大容量)
+# デモ録画動画 (大容量バイナリ)
+*.mp4
+
+# 学習データ・撮影データ (大容量)
 src/bmask_gen/data_aoyama/
 src/bmask_gen/data_aoyama_halfsize/
+nkr_data/
+sample_data/
 
 # Hailo コンパイル済みアーティファクト
 src/bmask_gen/hailo*/
@@ -33,8 +38,9 @@ src/bmask_gen/hailo*/
 # bmask_gen 重みディレクトリ
 src/bmask_gen/weights_*/
 
-# Windows バイナリ (外部 SDK 提供、再配布不可)
-# *.dll
+# バイナリ (外部 SDK / コンパイル済み共有ライブラリ)
+*.dll
+*.so
 *.lib
 
 # Hailo SDK / ランタイムが生成するログ・ロックファイル
