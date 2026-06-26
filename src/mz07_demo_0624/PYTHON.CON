@@ -1,0 +1,9 @@
+[PYTHON_PARAM]
+PROJECT_NAME_0=lg_demo
+PROGRAM_NAME_0=mz07_demo_0624/demo_full_pipeline_0624.py
+PROJECT_NAME_1=lg_demo
+PROGRAM_NAME_1=mz07_demo_0624/take_depth_rgb_image.py
+PROJECT_NAME_2=opennr_test
+PROGRAM_NAME_2=movej.py
+PROJECT_NAME_3=opennr_test
+PROGRAM_NAME_3=main.py
